@@ -1,0 +1,28 @@
+{
+  "name": "bu-ticketchain",
+  "version": "1.0.0",
+  "description": "Blockchain-backed ticketing system for university events",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "contracts:compile": "pnpm --filter contracts compile",
+    "contracts:test": "pnpm --filter contracts test",
+    "contracts:deploy:local": "pnpm --filter contracts deploy:local",
+    "backend:dev": "pnpm --filter backend dev",
+    "backend:build": "pnpm --filter backend build",
+    "frontend:dev": "pnpm --filter frontend dev",
+    "frontend:build": "pnpm --filter frontend build",
+    "db:up": "docker-compose up -d postgres",
+    "db:down": "docker-compose down",
+    "db:migrate": "pnpm --filter backend prisma:migrate",
+    "dev": "concurrently \"pnpm db:up\" \"pnpm backend:dev\" \"pnpm frontend:dev\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
+

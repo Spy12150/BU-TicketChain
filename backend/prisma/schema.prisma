@@ -1,0 +1,138 @@
+// Prisma schema for TicketChain backend
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User roles in the system
+enum Role {
+  USER
+  ADMIN
+  VERIFIER
+}
+
+// Ticket status
+enum TicketStatus {
+  VALID
+  USED
+  REFUNDED
+  TRANSFERRED
+}
+
+// Transaction status
+enum TransactionStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+}
+
+// Transaction types
+enum TransactionType {
+  PURCHASE
+  TRANSFER
+  REFUND
+}
+
+// Users table - stores BU ID or email based auth
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  buId            String?   @unique @map("bu_id")
+  passwordHash    String    @map("password_hash")
+  role            Role      @default(USER)
+  discountEligible Boolean  @default(false) @map("discount_eligible")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  wallets         Wallet[]
+  tickets         Ticket[]
+  transactions    Transaction[]
+
+  @@map("users")
+}
+
+// Wallet addresses linked to users
+model Wallet {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  address   String   @unique
+  isPrimary Boolean  @default(false) @map("is_primary")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("wallets")
+}
+
+// Events table - mirrors on-chain event data
+model Event {
+  id              String    @id @default(cuid())
+  onChainEventId  Int       @unique @map("on_chain_event_id")
+  name            String
+  description     String?
+  price           String    // Stored as string to handle BigInt from chain
+  discountedPrice String    @map("discounted_price")
+  maxSupply       Int       @map("max_supply")
+  totalSold       Int       @default(0) @map("total_sold")
+  startTime       DateTime  @map("start_time")
+  endTime         DateTime  @map("end_time")
+  venue           String?
+  imageUrl        String?   @map("image_url")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  tickets         Ticket[]
+  transactions    Transaction[]
+
+  @@map("events")
+}
+
+// Tickets table - tracks ticket ownership and status
+model Ticket {
+  id              String        @id @default(cuid())
+  eventId         String        @map("event_id")
+  ownerUserId     String?       @map("owner_user_id")
+  ownerAddress    String        @map("owner_address")
+  ticketSerial    Int           @map("ticket_serial")
+  status          TicketStatus  @default(VALID)
+  purchasedAt     DateTime      @default(now()) @map("purchased_at")
+  usedAt          DateTime?     @map("used_at")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  event           Event         @relation(fields: [eventId], references: [id])
+  owner           User?         @relation(fields: [ownerUserId], references: [id])
+  transactions    Transaction[]
+
+  @@unique([eventId, ticketSerial])
+  @@map("tickets")
+}
+
+// Transactions table - records all blockchain transactions
+model Transaction {
+  id            String            @id @default(cuid())
+  txHash        String?           @unique @map("tx_hash")
+  type          TransactionType
+  userId        String?           @map("user_id")
+  eventId       String?           @map("event_id")
+  ticketId      String?           @map("ticket_id")
+  fromAddress   String?           @map("from_address")
+  toAddress     String?           @map("to_address")
+  amount        String?           // ETH amount in wei as string
+  status        TransactionStatus @default(PENDING)
+  blockNumber   Int?              @map("block_number")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  confirmedAt   DateTime?         @map("confirmed_at")
+
+  user          User?             @relation(fields: [userId], references: [id])
+  event         Event?            @relation(fields: [eventId], references: [id])
+  ticket        Ticket?           @relation(fields: [ticketId], references: [id])
+
+  @@map("transactions")
+}
+

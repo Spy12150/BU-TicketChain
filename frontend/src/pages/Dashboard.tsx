@@ -1,0 +1,280 @@
+import { useState, useEffect } from "react";
+import { QRCodeSVG } from "qrcode.react";
+import { tickets as ticketsApi, Ticket } from "../lib/api";
+import { useAuthStore } from "../stores/authStore";
+import { useWalletStore } from "../stores/walletStore";
+
+function Dashboard() {
+  const { user, linkWallet } = useAuthStore();
+  const { address, isConnected, connect } = useWalletStore();
+
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadTickets();
+  }, []);
+
+  // Link wallet when connected
+  useEffect(() => {
+    if (isConnected && address && user && !user.walletAddress) {
+      linkWallet(address);
+    }
+  }, [isConnected, address, user]);
+
+  const loadTickets = async () => {
+    setIsLoading(true);
+    const { data, error } = await ticketsApi.myTickets();
+
+    if (error) {
+      setError(error);
+    } else if (data) {
+      setTickets(data.tickets);
+    }
+    setIsLoading(false);
+  };
+
+  const formatDate = (dateStr: string) => {
+    return new Date(dateStr).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  };
+
+  const formatTime = (dateStr: string) => {
+    return new Date(dateStr).toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  };
+
+  const validTickets = tickets.filter((t) => t.status === "VALID");
+  const usedTickets = tickets.filter((t) => t.status === "USED");
+  const otherTickets = tickets.filter((t) => !["VALID", "USED"].includes(t.status));
+
+  return (
+    <div className="animate-fade-in">
+      {/* Header */}
+      <div className="mb-8">
+        <h1 className="text-3xl font-display font-bold text-slate-900">My Tickets</h1>
+        <p className="text-slate-500 mt-1">
+          Manage and use your event tickets
+        </p>
+      </div>
+
+      {/* Wallet Connection */}
+      {!isConnected && (
+        <div className="mb-8 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center">
+              <svg className="w-5 h-5 text-amber-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <div>
+              <p className="font-medium text-amber-800">Wallet Not Connected</p>
+              <p className="text-sm text-amber-600">Connect your wallet to view all your tickets</p>
+            </div>
+          </div>
+          <button onClick={connect} className="btn-accent">
+            Connect Wallet
+          </button>
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="flex items-center justify-center min-h-[300px]">
+          <div className="w-12 h-12 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : error ? (
+        <div className="text-center py-12">
+          <p className="text-red-600">{error}</p>
+          <button onClick={loadTickets} className="btn-primary mt-4">
+            Retry
+          </button>
+        </div>
+      ) : tickets.length === 0 ? (
+        <div className="text-center py-16">
+          <div className="inline-flex items-center justify-center w-20 h-20 bg-slate-100 rounded-full mb-4">
+            <svg className="w-10 h-10 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
+            </svg>
+          </div>
+          <h3 className="text-lg font-semibold text-slate-900 mb-1">No tickets yet</h3>
+          <p className="text-slate-500">
+            Browse events and purchase your first ticket!
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-8">
+          {/* Valid Tickets */}
+          {validTickets.length > 0 && (
+            <section>
+              <h2 className="text-lg font-display font-semibold text-slate-900 mb-4">
+                Valid Tickets ({validTickets.length})
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {validTickets.map((ticket) => (
+                  <div
+                    key={ticket.id}
+                    className="card-hover p-5 cursor-pointer"
+                    onClick={() => setSelectedTicket(ticket)}
+                  >
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-slate-900 line-clamp-1">
+                          {ticket.eventName}
+                        </h3>
+                        <p className="text-sm text-slate-500 mt-0.5">
+                          Ticket #{ticket.ticketSerial}
+                        </p>
+                      </div>
+                      <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded-full">
+                        Valid
+                      </span>
+                    </div>
+
+                    <div className="space-y-2 text-sm text-slate-500">
+                      <div className="flex items-center gap-2">
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        <span>{formatDate(ticket.event.startTime)}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span>{formatTime(ticket.event.startTime)}</span>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between">
+                      <span className="text-xs text-slate-400">
+                        Tap to show QR
+                      </span>
+                      <svg className="w-5 h-5 text-primary-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h2M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+                      </svg>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Used Tickets */}
+          {usedTickets.length > 0 && (
+            <section>
+              <h2 className="text-lg font-display font-semibold text-slate-500 mb-4">
+                Used Tickets ({usedTickets.length})
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {usedTickets.map((ticket) => (
+                  <div key={ticket.id} className="card p-5 opacity-60">
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-slate-900 line-clamp-1">
+                          {ticket.eventName}
+                        </h3>
+                        <p className="text-sm text-slate-500">
+                          Ticket #{ticket.ticketSerial}
+                        </p>
+                      </div>
+                      <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs font-medium rounded-full">
+                        Used
+                      </span>
+                    </div>
+                    <p className="text-sm text-slate-400">
+                      Used on {ticket.usedAt ? formatDate(ticket.usedAt) : "N/A"}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Other Tickets */}
+          {otherTickets.length > 0 && (
+            <section>
+              <h2 className="text-lg font-display font-semibold text-slate-500 mb-4">
+                Other ({otherTickets.length})
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {otherTickets.map((ticket) => (
+                  <div key={ticket.id} className="card p-5 opacity-50">
+                    <div className="flex items-start justify-between mb-3">
+                      <h3 className="font-semibold text-slate-900">
+                        {ticket.eventName}
+                      </h3>
+                      <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs font-medium rounded-full capitalize">
+                        {ticket.status.toLowerCase()}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
+      )}
+
+      {/* QR Code Modal */}
+      {selectedTicket && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
+          onClick={() => setSelectedTicket(null)}
+        >
+          <div
+            className="bg-white rounded-2xl p-8 max-w-sm w-full animate-slide-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-center mb-6">
+              <h3 className="text-xl font-display font-bold text-slate-900">
+                {selectedTicket.eventName}
+              </h3>
+              <p className="text-slate-500">Ticket #{selectedTicket.ticketSerial}</p>
+            </div>
+
+            <div className="flex justify-center mb-6">
+              {selectedTicket.qrPayload ? (
+                <div className="p-4 bg-white rounded-xl shadow-lg">
+                  <QRCodeSVG
+                    value={selectedTicket.qrPayload}
+                    size={200}
+                    level="H"
+                    includeMargin
+                  />
+                </div>
+              ) : (
+                <div className="w-[200px] h-[200px] bg-slate-100 rounded-xl flex items-center justify-center">
+                  <p className="text-slate-500 text-sm">QR not available</p>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2 text-sm text-center text-slate-500 mb-6">
+              <p>{formatDate(selectedTicket.event.startTime)} at {formatTime(selectedTicket.event.startTime)}</p>
+              {selectedTicket.event.venue && (
+                <p>{selectedTicket.event.venue}</p>
+              )}
+            </div>
+
+            <button
+              onClick={() => setSelectedTicket(null)}
+              className="w-full btn-secondary"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default Dashboard;
+
