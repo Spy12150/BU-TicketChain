@@ -19,7 +19,8 @@ function Layout() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-primary-50">
+    // <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-primary-50">
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-50 via-slate-100 to-primary-50">
       {/* Header */}
       <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-lg border-b border-slate-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -126,7 +127,7 @@ function Layout() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 ">
         <Outlet />
       </main>
 
@@ -135,7 +136,7 @@ function Layout() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <p className="text-sm text-slate-500">
-              © 2024 BU TicketChain. Built with ❤️ at Boston University.
+              © 2025 BU TicketChain. Built by Max, Tingxuan, Sitong and Khang. This is just for BU CS595 Final Project. All rights reserved.
             </p>
             <div className="flex items-center gap-4 text-sm text-slate-500">
               <a href="#" className="hover:text-primary-600 transition-colors">
