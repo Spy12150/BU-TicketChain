@@ -31,7 +31,17 @@ function EventDetail() {
     if (error) {
       setError(error);
     } else if (data) {
-      setEvent(data);
+      // Recalculate status based on current client time to ensure accuracy
+      const now = new Date();
+      const startTime = new Date(data.startTime);
+      const endTime = new Date(data.endTime);
+      
+      setEvent({
+        ...data,
+        isUpcoming: startTime > now,
+        isOngoing: startTime <= now && endTime > now,
+        hasEnded: endTime <= now,
+      });
     }
     setIsLoading(false);
   };

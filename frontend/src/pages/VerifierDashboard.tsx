@@ -7,41 +7,62 @@ function VerifierDashboard() {
   const [isScanning, setIsScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [manualInput, setManualInput] = useState("");
+  const [uidInput, setUidInput] = useState("");
+  const [verifyMode, setVerifyMode] = useState<"qr" | "uid">("uid");
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
   // Clean up camera on unmount
   useEffect(() => {
     return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-      }
+      stopCamera();
     };
   }, []);
 
   const startCamera = async () => {
+    setError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" }
+        video: { 
+          facingMode: "environment",
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
       });
+      
+      streamRef.current = stream;
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        streamRef.current = stream;
+        // Important: wait for metadata to load before playing
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current?.play().catch(console.error);
+        };
         setIsScanning(true);
-        setError(null);
         setResult(null);
       }
     } catch (err) {
-      setError("Failed to access camera. Please grant camera permissions.");
+      console.error("Camera error:", err);
+      if (err instanceof Error) {
+        if (err.name === "NotAllowedError") {
+          setError("Camera access denied. Please allow camera permissions in your browser settings.");
+        } else if (err.name === "NotFoundError") {
+          setError("No camera found. Please connect a camera.");
+        } else {
+          setError(`Camera error: ${err.message}`);
+        }
+      } else {
+        setError("Failed to access camera. Please grant camera permissions.");
+      }
     }
   };
 
   const stopCamera = () => {
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current.getTracks().forEach(track => {
+        track.stop();
+      });
       streamRef.current = null;
     }
     if (videoRef.current) {
@@ -92,6 +113,55 @@ function VerifierDashboard() {
     }
   };
 
+  // NEW: Verify by UID (e.g., TKT-1-0001)
+  const verifyByUID = async (uid: string) => {
+    setIsVerifying(true);
+    setError(null);
+    setResult(null);
+
+    try {
+      // Parse UID format: TKT-{eventId}-{serial}
+      const match = uid.trim().toUpperCase().match(/^TKT-(\d+)-(\d+)$/);
+      if (!match) {
+        throw new Error("Invalid UID format. Expected: TKT-{eventId}-{serial} (e.g., TKT-1-0001)");
+      }
+
+      const eventId = parseInt(match[1], 10);
+      const ticketSerial = parseInt(match[2], 10);
+
+      // For UID verification, we don't have the holder address
+      // So we'll just verify the ticket exists and is valid
+      const { data, error } = await ticketsApi.verify({
+        eventId,
+        ticketSerial,
+        holderAddress: "0x0000000000000000000000000000000000000000", // Placeholder
+        nonce: "uid-verify",
+      });
+
+      if (error) {
+        setResult({ valid: false, reason: error });
+      } else if (data) {
+        // Adjust message for UID verification
+        if (data.valid && data.ticket) {
+          setResult({
+            ...data,
+            reason: undefined,
+          });
+          await ticketsApi.markUsed(data.ticket.id);
+        } else {
+          setResult(data);
+        }
+      }
+    } catch (err) {
+      setResult({
+        valid: false,
+        reason: err instanceof Error ? err.message : "Failed to verify ticket",
+      });
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
   const handleManualVerify = (e: React.FormEvent) => {
     e.preventDefault();
     if (manualInput.trim()) {
@@ -99,10 +169,18 @@ function VerifierDashboard() {
     }
   };
 
+  const handleUIDVerify = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (uidInput.trim()) {
+      verifyByUID(uidInput.trim());
+    }
+  };
+
   const resetVerification = () => {
     setResult(null);
     setError(null);
     setManualInput("");
+    setUidInput("");
   };
 
   return (
@@ -110,7 +188,7 @@ function VerifierDashboard() {
       {/* Header */}
       <div className="text-center mb-8">
         <h1 className="text-3xl font-display font-bold text-slate-900">Ticket Verification</h1>
-        <p className="text-slate-500 mt-1">Scan QR codes to verify tickets at the venue</p>
+        <p className="text-slate-500 mt-1">Verify tickets at the venue</p>
       </div>
 
       {/* Result Display */}
@@ -137,13 +215,13 @@ function VerifierDashboard() {
           <h2 className={`text-2xl font-display font-bold mb-2 ${
             result.valid ? "text-green-700" : "text-red-700"
           }`}>
-            {result.valid ? "VALID TICKET" : "INVALID TICKET"}
+            {result.valid ? "✓ VALID TICKET" : "✗ INVALID TICKET"}
           </h2>
 
           {result.valid && result.ticket ? (
             <div className="text-green-600 space-y-1">
               <p className="font-semibold text-lg">{result.ticket.eventName}</p>
-              <p>Ticket #{result.ticket.ticketSerial}</p>
+              <p className="font-mono">TKT-{result.ticket.ticketSerial}</p>
               <p className="text-sm">{result.ticket.ownerName}</p>
               <p className="text-xs mt-2 text-green-500">
                 ✓ Ticket has been marked as used
@@ -166,90 +244,54 @@ function VerifierDashboard() {
         </div>
       )}
 
-      {/* Scanner */}
+      {/* Verification Mode Tabs */}
       {!result && (
-        <div className="card overflow-hidden mb-6">
-          <div className="aspect-square bg-slate-900 relative">
-            {isScanning ? (
-              <>
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  className="w-full h-full object-cover"
-                />
-                <canvas ref={canvasRef} className="hidden" />
-                
-                {/* Scanning overlay */}
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="w-64 h-64 border-4 border-white/50 rounded-2xl relative">
-                    <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary-500 rounded-tl-xl" />
-                    <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary-500 rounded-tr-xl" />
-                    <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary-500 rounded-bl-xl" />
-                    <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-primary-500 rounded-br-xl" />
-                    
-                    {/* Scanning line animation */}
-                    <div className="absolute inset-x-4 h-0.5 bg-primary-500 animate-[scan_2s_ease-in-out_infinite]" 
-                      style={{
-                        animation: "scan 2s ease-in-out infinite",
-                      }}
-                    />
-                  </div>
-                </div>
-
-                <style>{`
-                  @keyframes scan {
-                    0%, 100% { top: 10%; }
-                    50% { top: 90%; }
-                  }
-                `}</style>
-
-                {/* Controls */}
-                <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2">
-                  <button
-                    onClick={stopCamera}
-                    className="px-4 py-2 bg-white/90 text-slate-900 rounded-lg font-medium hover:bg-white"
-                  >
-                    Stop Scanning
-                  </button>
-                </div>
-              </>
-            ) : (
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
-                <svg className="w-16 h-16 text-slate-400 mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <path d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h2M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
-                </svg>
-                <p className="text-slate-400 mb-4">Camera not active</p>
-                <button
-                  onClick={startCamera}
-                  className="btn-primary"
-                >
-                  Start QR Scanner
-                </button>
-              </div>
-            )}
-          </div>
+        <div className="flex bg-slate-100 rounded-lg p-1 mb-6">
+          <button
+            onClick={() => setVerifyMode("uid")}
+            className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+              verifyMode === "uid"
+                ? "bg-white text-slate-900 shadow-sm"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            🎫 Verify by Ticket UID
+          </button>
+          <button
+            onClick={() => setVerifyMode("qr")}
+            className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+              verifyMode === "qr"
+                ? "bg-white text-slate-900 shadow-sm"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            📷 Scan QR Code
+          </button>
         </div>
       )}
 
-      {/* Manual Input */}
-      {!result && (
-        <div className="card p-6">
-          <h3 className="font-display font-semibold text-slate-900 mb-4">
-            Or Enter QR Code Manually
+      {/* UID Verification Mode */}
+      {!result && verifyMode === "uid" && (
+        <div className="card p-6 mb-6">
+          <h3 className="font-display font-semibold text-slate-900 mb-2">
+            Enter Ticket UID
           </h3>
-          <form onSubmit={handleManualVerify} className="flex gap-3">
+          <p className="text-sm text-slate-500 mb-4">
+            Enter the ticket UID shown on the attendee's ticket (e.g., TKT-1-0001)
+          </p>
+          <form onSubmit={handleUIDVerify} className="flex gap-3">
             <input
               type="text"
-              value={manualInput}
-              onChange={(e) => setManualInput(e.target.value)}
-              placeholder="Paste QR code payload here..."
-              className="input flex-1"
+              value={uidInput}
+              onChange={(e) => setUidInput(e.target.value.toUpperCase())}
+              placeholder="TKT-1-0001"
+              className="input flex-1 font-mono text-lg tracking-wider"
+              autoFocus
             />
             <button
               type="submit"
-              disabled={isVerifying || !manualInput.trim()}
-              className="btn-primary"
+              disabled={isVerifying || !uidInput.trim()}
+              className="btn-primary px-8"
             >
               {isVerifying ? (
                 <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -258,10 +300,95 @@ function VerifierDashboard() {
               )}
             </button>
           </form>
+        </div>
+      )}
 
-          {error && (
-            <p className="mt-3 text-sm text-red-600">{error}</p>
-          )}
+      {/* QR Scanner Mode */}
+      {!result && verifyMode === "qr" && (
+        <>
+          <div className="card overflow-hidden mb-6">
+            <div className="aspect-video bg-slate-900 relative">
+              {isScanning ? (
+                <>
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover"
+                  />
+                  
+                  {/* Scanning overlay */}
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div className="w-48 h-48 border-4 border-white/50 rounded-2xl relative">
+                      <div className="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-primary-500 rounded-tl-lg" />
+                      <div className="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-primary-500 rounded-tr-lg" />
+                      <div className="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-primary-500 rounded-bl-lg" />
+                      <div className="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-primary-500 rounded-br-lg" />
+                    </div>
+                  </div>
+
+                  {/* Controls */}
+                  <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2">
+                    <button
+                      onClick={stopCamera}
+                      className="px-4 py-2 bg-white/90 text-slate-900 rounded-lg font-medium hover:bg-white"
+                    >
+                      Stop Camera
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
+                  <svg className="w-16 h-16 text-slate-400 mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h2M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+                  </svg>
+                  <p className="text-slate-400 mb-4">Camera not active</p>
+                  <button
+                    onClick={startCamera}
+                    className="btn-primary"
+                  >
+                    Start Camera
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Manual QR Input */}
+          <div className="card p-6">
+            <h3 className="font-display font-semibold text-slate-900 mb-4">
+              Or Paste QR Code Data
+            </h3>
+            <form onSubmit={handleManualVerify} className="flex gap-3">
+              <input
+                type="text"
+                value={manualInput}
+                onChange={(e) => setManualInput(e.target.value)}
+                placeholder="Paste base64 QR payload..."
+                className="input flex-1 font-mono text-sm"
+              />
+              <button
+                type="submit"
+                disabled={isVerifying || !manualInput.trim()}
+                className="btn-primary"
+              >
+                {isVerifying ? (
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  "Verify"
+                )}
+              </button>
+            </form>
+          </div>
+        </>
+      )}
+
+      {/* Error Display */}
+      {error && !result && (
+        <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700">
+          <p className="font-medium">Error</p>
+          <p className="text-sm">{error}</p>
         </div>
       )}
 
@@ -269,26 +396,39 @@ function VerifierDashboard() {
       {!result && (
         <div className="mt-8 p-6 bg-slate-100 rounded-xl">
           <h3 className="font-display font-semibold text-slate-900 mb-3">
-            How to Verify Tickets
+            How to Verify
           </h3>
-          <ol className="space-y-2 text-sm text-slate-600">
-            <li className="flex items-start gap-2">
-              <span className="w-5 h-5 bg-primary-100 text-primary-600 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold">1</span>
-              <span>Click "Start QR Scanner" to activate the camera</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="w-5 h-5 bg-primary-100 text-primary-600 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold">2</span>
-              <span>Point the camera at the ticket holder's QR code</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="w-5 h-5 bg-primary-100 text-primary-600 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold">3</span>
-              <span>The system will verify the ticket and mark it as used</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="w-5 h-5 bg-primary-100 text-primary-600 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold">4</span>
-              <span>Green = Valid entry, Red = Do not admit</span>
-            </li>
-          </ol>
+          {verifyMode === "uid" ? (
+            <ol className="space-y-2 text-sm text-slate-600">
+              <li className="flex items-start gap-2">
+                <span className="w-5 h-5 bg-primary-100 text-primary-600 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold">1</span>
+                <span>Ask the attendee to show their ticket UID (format: TKT-X-XXXX)</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="w-5 h-5 bg-primary-100 text-primary-600 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold">2</span>
+                <span>Enter the UID in the input field above</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="w-5 h-5 bg-primary-100 text-primary-600 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold">3</span>
+                <span>Click "Verify" - Green = Admit, Red = Do not admit</span>
+              </li>
+            </ol>
+          ) : (
+            <ol className="space-y-2 text-sm text-slate-600">
+              <li className="flex items-start gap-2">
+                <span className="w-5 h-5 bg-primary-100 text-primary-600 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold">1</span>
+                <span>Click "Start Camera" and allow camera access</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="w-5 h-5 bg-primary-100 text-primary-600 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold">2</span>
+                <span>Point camera at the attendee's QR code</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="w-5 h-5 bg-primary-100 text-primary-600 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold">3</span>
+                <span>Green = Valid entry, Red = Do not admit</span>
+              </li>
+            </ol>
+          )}
         </div>
       )}
     </div>
@@ -296,4 +436,3 @@ function VerifierDashboard() {
 }
 
 export default VerifierDashboard;
-

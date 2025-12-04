@@ -1,17 +1,36 @@
 import { Outlet, Link, useLocation } from "react-router-dom";
 import { useAuthStore } from "../stores/authStore";
-import { useWalletStore } from "../stores/walletStore";
-import { useEffect } from "react";
+import { useWalletStore, setOnAccountChangeCallback } from "../stores/walletStore";
+import { useEffect, useState } from "react";
 
 function Layout() {
   const { isAuthenticated, user, logout, checkAuth } = useAuthStore();
   const { address, isConnected, connect, checkConnection, isConnecting } = useWalletStore();
   const location = useLocation();
+  const [walletChangeNotice, setWalletChangeNotice] = useState<string | null>(null);
 
   // Check auth and wallet connection on mount
   useEffect(() => {
     checkAuth();
     checkConnection();
+
+    // Set up callback for wallet account changes
+    setOnAccountChangeCallback((newAddress, previousAddress) => {
+      if (previousAddress && newAddress && previousAddress !== newAddress) {
+        // Wallet switched to a different account
+        setWalletChangeNotice(`Wallet changed from ${previousAddress.slice(0, 6)}...${previousAddress.slice(-4)} to ${newAddress.slice(0, 6)}...${newAddress.slice(-4)}. Please login again if needed.`);
+        // Optionally logout the user since wallet changed
+        if (user?.walletAddress && user.walletAddress.toLowerCase() !== newAddress.toLowerCase()) {
+          logout();
+        }
+        // Clear notice after 5 seconds
+        setTimeout(() => setWalletChangeNotice(null), 5000);
+      } else if (previousAddress && !newAddress) {
+        // Wallet disconnected
+        setWalletChangeNotice("Wallet disconnected");
+        setTimeout(() => setWalletChangeNotice(null), 3000);
+      }
+    });
   }, []);
 
   const formatAddress = (addr: string) => {
@@ -126,8 +145,21 @@ function Layout() {
         </div>
       </header>
 
+      {/* Wallet Change Notice */}
+      {walletChangeNotice && (
+        <div className="bg-amber-100 border-b border-amber-200 px-4 py-2 text-center text-sm text-amber-800">
+          {walletChangeNotice}
+          <button 
+            onClick={() => setWalletChangeNotice(null)} 
+            className="ml-2 text-amber-600 hover:text-amber-800 underline"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Main Content */}
-      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 ">
+      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Outlet />
       </main>
 

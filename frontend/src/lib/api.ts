@@ -196,6 +196,19 @@ export interface CreateEventData {
   venue?: string;
 }
 
+export interface TicketPurchase {
+  ticketId: string;
+  ticketSerial: number;
+  ticketUID: string;
+  status: string;
+  buyerAddress: string;
+  buyerEmail: string | null;
+  buyerBuId: string | null;
+  purchasedAt: string;
+  txHash: string | null;
+  pricePaid: string | null;
+}
+
 export interface EventStats {
   event: {
     id: string;
@@ -209,6 +222,7 @@ export interface EventStats {
     totalWei: string;
     totalEth: string;
   };
+  purchases: TicketPurchase[];
 }
 
 export interface VerifyResult {

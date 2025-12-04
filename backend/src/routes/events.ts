@@ -84,11 +84,20 @@ export async function eventsRoutes(fastify: FastifyInstance): Promise<void> {
       // Chain might not be available, use DB data
     }
 
+    // Calculate status based on current time
+    const now = new Date();
+    const isUpcoming = new Date(event.startTime) > now;
+    const isOngoing = new Date(event.startTime) <= now && new Date(event.endTime) > now;
+    const hasEnded = new Date(event.endTime) <= now;
+
     return reply.send({
       ...event,
       remaining: event.maxSupply - event.totalSold,
       priceEth: ethers.formatEther(event.price),
       discountedPriceEth: ethers.formatEther(event.discountedPrice),
+      isUpcoming,
+      isOngoing,
+      hasEnded,
       chainData: chainData
         ? {
             totalSold: Number(chainData.totalSold),
@@ -206,6 +215,31 @@ export async function eventsRoutes(fastify: FastifyInstance): Promise<void> {
         _count: { id: true },
       });
 
+      // Get all tickets with buyer info for this event
+      const ticketPurchases = await prisma.ticket.findMany({
+        where: { eventId: id },
+        include: {
+          owner: {
+            select: {
+              id: true,
+              email: true,
+              buId: true,
+            },
+          },
+          transactions: {
+            where: { type: "PURCHASE" },
+            select: {
+              txHash: true,
+              amount: true,
+              createdAt: true,
+              confirmedAt: true,
+            },
+            take: 1,
+          },
+        },
+        orderBy: { purchasedAt: "desc" },
+      });
+
       // Get transaction stats
       const transactions = await prisma.transaction.findMany({
         where: { eventId: id },
@@ -215,6 +249,22 @@ export async function eventsRoutes(fastify: FastifyInstance): Promise<void> {
       const totalRevenue = transactions
         .filter((t) => t.type === "PURCHASE" && t.status === "CONFIRMED" && t.amount)
         .reduce((sum, t) => sum + BigInt(t.amount || "0"), BigInt(0));
+
+      // Format ticket purchases for admin view
+      const purchases = ticketPurchases.map((ticket) => ({
+        ticketId: ticket.id,
+        ticketSerial: ticket.ticketSerial,
+        ticketUID: `TKT-${event.onChainEventId}-${ticket.ticketSerial.toString().padStart(4, "0")}`,
+        status: ticket.status,
+        buyerAddress: ticket.ownerAddress,
+        buyerEmail: ticket.owner?.email || null,
+        buyerBuId: ticket.owner?.buId || null,
+        purchasedAt: ticket.purchasedAt.toISOString(),
+        txHash: ticket.transactions[0]?.txHash || null,
+        pricePaid: ticket.transactions[0]?.amount 
+          ? ethers.formatEther(ticket.transactions[0].amount) + " ETH"
+          : null,
+      }));
 
       return reply.send({
         event: {
@@ -235,8 +285,8 @@ export async function eventsRoutes(fastify: FastifyInstance): Promise<void> {
           totalWei: totalRevenue.toString(),
           totalEth: ethers.formatEther(totalRevenue),
         },
+        purchases, // NEW: List of all purchases with buyer details
       });
     }
   );
 }
-

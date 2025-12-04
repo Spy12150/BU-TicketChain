@@ -3,6 +3,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { tickets as ticketsApi, Ticket } from "../lib/api";
 import { useAuthStore } from "../stores/authStore";
 import { useWalletStore } from "../stores/walletStore";
+import { transferTicket as transferTicketOnChain, refundTicket as refundTicketOnChain } from "../lib/blockchain";
 
 function Dashboard() {
   const { user, linkWallet } = useAuthStore();
@@ -12,6 +13,16 @@ function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [error, setError] = useState<string | null>(null);
+  
+  // Transfer state
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [transferAddress, setTransferAddress] = useState("");
+  const [isTransferring, setIsTransferring] = useState(false);
+  const [transferError, setTransferError] = useState<string | null>(null);
+  
+  // Refund state
+  const [isRefunding, setIsRefunding] = useState(false);
+  const [refundError, setRefundError] = useState<string | null>(null);
 
   useEffect(() => {
     loadTickets();
@@ -36,6 +47,82 @@ function Dashboard() {
     setIsLoading(false);
   };
 
+  const getTicketUID = (ticket: Ticket) => {
+    return `TKT-${ticket.onChainEventId}-${ticket.ticketSerial.toString().padStart(4, "0")}`;
+  };
+
+  const handleTransfer = async () => {
+    if (!selectedTicket || !transferAddress || !address) return;
+    
+    // Validate address
+    if (!/^0x[a-fA-F0-9]{40}$/.test(transferAddress)) {
+      setTransferError("Invalid Ethereum address");
+      return;
+    }
+
+    setIsTransferring(true);
+    setTransferError(null);
+
+    try {
+      // Execute on-chain transfer
+      const { txHash } = await transferTicketOnChain(
+        selectedTicket.onChainEventId,
+        transferAddress,
+        1
+      );
+
+      // Record transfer in backend
+      await ticketsApi.recordTransfer({
+        ticketId: selectedTicket.id,
+        toAddress: transferAddress,
+        txHash,
+      });
+
+      // Success - close modals and refresh
+      setShowTransferModal(false);
+      setSelectedTicket(null);
+      setTransferAddress("");
+      await loadTickets();
+    } catch (err) {
+      setTransferError(err instanceof Error ? err.message : "Transfer failed");
+    } finally {
+      setIsTransferring(false);
+    }
+  };
+
+  const handleRefund = async () => {
+    if (!selectedTicket || !address) return;
+
+    // Check if event hasn't started
+    const eventStart = new Date(selectedTicket.event.startTime);
+    if (eventStart <= new Date()) {
+      setRefundError("Cannot refund - event has already started");
+      return;
+    }
+
+    setIsRefunding(true);
+    setRefundError(null);
+
+    try {
+      // Execute on-chain refund
+      const { txHash } = await refundTicketOnChain(selectedTicket.onChainEventId);
+
+      // Record refund in backend
+      await ticketsApi.recordRefund({
+        ticketId: selectedTicket.id,
+        txHash,
+      });
+
+      // Success - close modal and refresh
+      setSelectedTicket(null);
+      await loadTickets();
+    } catch (err) {
+      setRefundError(err instanceof Error ? err.message : "Refund failed");
+    } finally {
+      setIsRefunding(false);
+    }
+  };
+
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString("en-US", {
       month: "short",
@@ -49,6 +136,11 @@ function Dashboard() {
       hour: "numeric",
       minute: "2-digit",
     });
+  };
+
+  const canRefund = (ticket: Ticket) => {
+    const eventStart = new Date(ticket.event.startTime);
+    return eventStart > new Date() && ticket.status === "VALID";
   };
 
   const validTickets = tickets.filter((t) => t.status === "VALID");
@@ -76,7 +168,7 @@ function Dashboard() {
             </div>
             <div>
               <p className="font-medium text-amber-800">Wallet Not Connected</p>
-              <p className="text-sm text-amber-600">Connect your wallet to view all your tickets</p>
+              <p className="text-sm text-amber-600">Connect your wallet to transfer or refund tickets</p>
             </div>
           </div>
           <button onClick={connect} className="btn-accent">
@@ -123,13 +215,14 @@ function Dashboard() {
                     className="card-hover p-5 cursor-pointer"
                     onClick={() => setSelectedTicket(ticket)}
                   >
-                    <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-start justify-between mb-2">
                       <div className="flex-1">
                         <h3 className="font-semibold text-slate-900 line-clamp-1">
                           {ticket.eventName}
                         </h3>
-                        <p className="text-sm text-slate-500 mt-0.5">
-                          Ticket #{ticket.ticketSerial}
+                        {/* Prominent UID Display */}
+                        <p className="font-mono text-sm text-primary-600 font-medium mt-1">
+                          {getTicketUID(ticket)}
                         </p>
                       </div>
                       <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded-full">
@@ -137,7 +230,7 @@ function Dashboard() {
                       </span>
                     </div>
 
-                    <div className="space-y-2 text-sm text-slate-500">
+                    <div className="space-y-2 text-sm text-slate-500 mt-3">
                       <div className="flex items-center gap-2">
                         <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <path d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -154,7 +247,7 @@ function Dashboard() {
 
                     <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between">
                       <span className="text-xs text-slate-400">
-                        Tap to show QR
+                        Tap to view details
                       </span>
                       <svg className="w-5 h-5 text-primary-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h2M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
@@ -180,8 +273,8 @@ function Dashboard() {
                         <h3 className="font-semibold text-slate-900 line-clamp-1">
                           {ticket.eventName}
                         </h3>
-                        <p className="text-sm text-slate-500">
-                          Ticket #{ticket.ticketSerial}
+                        <p className="font-mono text-sm text-slate-500 mt-1">
+                          {getTicketUID(ticket)}
                         </p>
                       </div>
                       <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs font-medium rounded-full">
@@ -207,9 +300,14 @@ function Dashboard() {
                 {otherTickets.map((ticket) => (
                   <div key={ticket.id} className="card p-5 opacity-50">
                     <div className="flex items-start justify-between mb-3">
-                      <h3 className="font-semibold text-slate-900">
-                        {ticket.eventName}
-                      </h3>
+                      <div>
+                        <h3 className="font-semibold text-slate-900">
+                          {ticket.eventName}
+                        </h3>
+                        <p className="font-mono text-sm text-slate-500 mt-1">
+                          {getTicketUID(ticket)}
+                        </p>
+                      </div>
                       <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs font-medium rounded-full capitalize">
                         {ticket.status.toLowerCase()}
                       </span>
@@ -222,53 +320,187 @@ function Dashboard() {
         </div>
       )}
 
-      {/* QR Code Modal */}
-      {selectedTicket && (
+      {/* Ticket Detail Modal */}
+      {selectedTicket && !showTransferModal && (
         <div
           className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
           onClick={() => setSelectedTicket(null)}
         >
           <div
-            className="bg-white rounded-2xl p-8 max-w-sm w-full animate-slide-up"
+            className="bg-white rounded-2xl p-6 max-w-md w-full animate-slide-up"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="text-center mb-6">
+            {/* Header */}
+            <div className="text-center mb-4">
               <h3 className="text-xl font-display font-bold text-slate-900">
                 {selectedTicket.eventName}
               </h3>
-              <p className="text-slate-500">Ticket #{selectedTicket.ticketSerial}</p>
+              {/* Prominent UID */}
+              <div className="mt-2 inline-block px-4 py-2 bg-primary-50 rounded-lg">
+                <p className="text-xs text-primary-600 uppercase tracking-wider">Ticket UID</p>
+                <p className="font-mono text-lg font-bold text-primary-700">
+                  {getTicketUID(selectedTicket)}
+                </p>
+              </div>
             </div>
 
-            <div className="flex justify-center mb-6">
+            {/* QR Code */}
+            <div className="flex justify-center mb-4">
               {selectedTicket.qrPayload ? (
-                <div className="p-4 bg-white rounded-xl shadow-lg">
+                <div className="p-3 bg-white rounded-xl shadow-lg border">
                   <QRCodeSVG
                     value={selectedTicket.qrPayload}
-                    size={200}
+                    size={180}
                     level="H"
                     includeMargin
                   />
                 </div>
               ) : (
-                <div className="w-[200px] h-[200px] bg-slate-100 rounded-xl flex items-center justify-center">
+                <div className="w-[180px] h-[180px] bg-slate-100 rounded-xl flex items-center justify-center">
                   <p className="text-slate-500 text-sm">QR not available</p>
                 </div>
               )}
             </div>
 
-            <div className="space-y-2 text-sm text-center text-slate-500 mb-6">
-              <p>{formatDate(selectedTicket.event.startTime)} at {formatTime(selectedTicket.event.startTime)}</p>
+            {/* Event Details */}
+            <div className="space-y-2 text-sm text-center text-slate-500 mb-4">
+              <p className="flex items-center justify-center gap-2">
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                {formatDate(selectedTicket.event.startTime)} at {formatTime(selectedTicket.event.startTime)}
+              </p>
               {selectedTicket.event.venue && (
-                <p>{selectedTicket.event.venue}</p>
+                <p className="flex items-center justify-center gap-2">
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                  </svg>
+                  {selectedTicket.event.venue}
+                </p>
               )}
             </div>
 
-            <button
-              onClick={() => setSelectedTicket(null)}
-              className="w-full btn-secondary"
-            >
-              Close
-            </button>
+            {/* Error Messages */}
+            {refundError && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                {refundError}
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="space-y-2">
+              {isConnected && (
+                <>
+                  <button
+                    onClick={() => setShowTransferModal(true)}
+                    className="w-full btn-secondary flex items-center justify-center gap-2"
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                    </svg>
+                    Transfer Ticket
+                  </button>
+                  
+                  {canRefund(selectedTicket) && (
+                    <button
+                      onClick={handleRefund}
+                      disabled={isRefunding}
+                      className="w-full btn-outline text-red-600 border-red-300 hover:bg-red-50 flex items-center justify-center gap-2"
+                    >
+                      {isRefunding ? (
+                        <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                      )}
+                      {isRefunding ? "Processing..." : "Request Refund"}
+                    </button>
+                  )}
+                </>
+              )}
+
+              <button
+                onClick={() => setSelectedTicket(null)}
+                className="w-full btn-secondary"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Transfer Modal */}
+      {showTransferModal && selectedTicket && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
+          onClick={() => {
+            setShowTransferModal(false);
+            setTransferError(null);
+            setTransferAddress("");
+          }}
+        >
+          <div
+            className="bg-white rounded-2xl p-6 max-w-md w-full animate-slide-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-xl font-display font-bold text-slate-900 mb-2">
+              Transfer Ticket
+            </h3>
+            <p className="text-slate-500 text-sm mb-4">
+              Transfer <span className="font-mono font-medium">{getTicketUID(selectedTicket)}</span> to another wallet
+            </p>
+
+            {transferError && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                {transferError}
+              </div>
+            )}
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                Recipient Wallet Address
+              </label>
+              <input
+                type="text"
+                value={transferAddress}
+                onChange={(e) => setTransferAddress(e.target.value)}
+                placeholder="0x..."
+                className="input font-mono"
+              />
+            </div>
+
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-sm mb-4">
+              ⚠️ This action cannot be undone. The ticket will be transferred to the specified address.
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowTransferModal(false);
+                  setTransferError(null);
+                  setTransferAddress("");
+                }}
+                className="flex-1 btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleTransfer}
+                disabled={isTransferring || !transferAddress}
+                className="flex-1 btn-primary"
+              >
+                {isTransferring ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Transferring...
+                  </div>
+                ) : (
+                  "Transfer"
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -277,4 +509,3 @@ function Dashboard() {
 }
 
 export default Dashboard;
-
