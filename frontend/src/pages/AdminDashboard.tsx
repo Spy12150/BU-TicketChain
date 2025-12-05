@@ -476,6 +476,7 @@ function AdminDashboard() {
                     <tbody className="divide-y divide-slate-100">
                       {eventStats.purchases.map((purchase) => (
                         <tr key={purchase.ticketId} className="hover:bg-slate-50">
+                          {console.log("Ticket status:", purchase.status)}
                           <td className="px-3 py-2 font-mono text-xs text-primary-600">
                             {purchase.ticketUID}
                           </td>
@@ -486,7 +487,7 @@ function AdminDashboard() {
                               className="ml-1 text-slate-400 hover:text-slate-600"
                               title="Copy full address"
                             >
-                              📋
+                              
                             </button>
                           </td>
                           <td className="px-3 py-2">
