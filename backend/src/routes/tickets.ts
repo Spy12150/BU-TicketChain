@@ -4,6 +4,7 @@ import prisma from "../lib/prisma.js";
 import { authorize } from "../lib/auth.js";
 import { verifyTicketOnChain, ethers } from "../lib/blockchain.js";
 import crypto from "crypto";
+import { parseTicketUID } from "../lib/parseTicketUID.js";
 
 // Validation schemas
 const buyTicketSchema = z.object({
@@ -24,11 +25,18 @@ const refundTicketSchema = z.object({
   txHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
 });
 
+// const verifyTicketSchema = z.object({
+//   eventId: z.number().int().positive(),
+//   ticketSerial: z.number().int().nonnegative(),
+//   holderAddress: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+//   nonce: z.string(),
+//   signature: z.string().optional(),
+// });
 const verifyTicketSchema = z.object({
-  eventId: z.number().int().positive(),
+  eventId: z.number().int().nonnegative(),
   ticketSerial: z.number().int().nonnegative(),
-  holderAddress: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
-  nonce: z.string(),
+  holderAddress: z.string(),
+  nonce: z.string().optional(),
   signature: z.string().optional(),
 });
 
@@ -358,118 +366,118 @@ export async function ticketsRoutes(fastify: FastifyInstance): Promise<void> {
     }
   );
 
-  /**
-   * POST /tickets/verify - Verify a ticket (for venue entry)
-   * Used by verifier role to scan QR codes
-   */
-  fastify.post(
-    "/verify",
-    { preHandler: [fastify.authenticate, authorize("VERIFIER", "ADMIN")] },
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const body = verifyTicketSchema.parse(request.body);
+//   /**
+//    * POST /tickets/verify - Verify a ticket (for venue entry)
+//    * Used by verifier role to scan QR codes
+//    */
+//   fastify.post(
+//     "/verify",
+//     { preHandler: [fastify.authenticate, authorize("VERIFIER", "ADMIN")] },
+//     async (request: FastifyRequest, reply: FastifyReply) => {
+//       try {
+//         const body = verifyTicketSchema.parse(request.body);
 
-        // Find event by on-chain ID
-        const event = await prisma.event.findUnique({
-          where: { onChainEventId: body.eventId },
-        });
+//         // Find event by on-chain ID
+//         const event = await prisma.event.findUnique({
+//           where: { onChainEventId: body.eventId },
+//         });
 
-        if (!event) {
-          return reply.send({
-            valid: false,
-            reason: "Event not found",
-          });
-        }
+//         if (!event) {
+//           return reply.send({
+//             valid: false,
+//             reason: "Event not found",
+//           });
+//         }
 
-        // Find ticket in DB
-        const ticket = await prisma.ticket.findUnique({
-          where: {
-            eventId_ticketSerial: {
-              eventId: event.id,
-              ticketSerial: body.ticketSerial,
-            },
-          },
-          include: { owner: true },
-        });
+//         // Find ticket in DB
+//         const ticket = await prisma.ticket.findUnique({
+//           where: {
+//             eventId_ticketSerial: {
+//               eventId: event.id,
+//               ticketSerial: body.ticketSerial,
+//             },
+//           },
+//           include: { owner: true },
+//         });
 
-        if (!ticket) {
-          return reply.send({
-            valid: false,
-            reason: "Ticket not found",
-          });
-        }
+//         if (!ticket) {
+//           return reply.send({
+//             valid: false,
+//             reason: "Ticket not found",
+//           });
+//         }
 
-        // Check DB status
-        if (ticket.status === "USED") {
-          return reply.send({
-            valid: false,
-            reason: "Ticket already used",
-            usedAt: ticket.usedAt,
-          });
-        }
+//         // Check DB status
+//         if (ticket.status === "USED") {
+//           return reply.send({
+//             valid: false,
+//             reason: "Ticket already used",
+//             usedAt: ticket.usedAt,
+//           });
+//         }
 
-        if (ticket.status !== "VALID") {
-          return reply.send({
-            valid: false,
-            reason: `Ticket status: ${ticket.status}`,
-          });
-        }
+//         if (ticket.status !== "VALID") {
+//           return reply.send({
+//             valid: false,
+//             reason: `Ticket status: ${ticket.status}`,
+//           });
+//         }
 
-        // Verify ownership matches
-        if (ticket.ownerAddress.toLowerCase() !== body.holderAddress.toLowerCase()) {
-          return reply.send({
-            valid: false,
-            reason: "Holder address mismatch",
-          });
-        }
+//         // Verify ownership matches
+//         if (ticket.ownerAddress.toLowerCase() !== body.holderAddress.toLowerCase()) {
+//           return reply.send({
+//             valid: false,
+//             reason: "Holder address mismatch",
+//           });
+//         }
 
-        // Also verify on-chain
-        let chainVerification = { valid: false, used: false, balance: BigInt(0) };
-        try {
-          chainVerification = await verifyTicketOnChain(
-            body.eventId,
-            body.ticketSerial,
-            body.holderAddress
-          );
-        } catch {
-          // Chain verification failed, rely on DB
-          console.warn("On-chain verification failed, using DB data");
-        }
+//         // Also verify on-chain
+//         let chainVerification = { valid: false, used: false, balance: BigInt(0) };
+//         try {
+//           chainVerification = await verifyTicketOnChain(
+//             body.eventId,
+//             body.ticketSerial,
+//             body.holderAddress
+//           );
+//         } catch {
+//           // Chain verification failed, rely on DB
+//           console.warn("On-chain verification failed, using DB data");
+//         }
 
-        // If chain says invalid or used, trust chain
-        if (chainVerification.used) {
-          // Mark as used in DB too
-          await prisma.ticket.update({
-            where: { id: ticket.id },
-            data: { status: "USED", usedAt: new Date() },
-          });
+//         // If chain says invalid or used, trust chain
+//         if (chainVerification.used) {
+//           // Mark as used in DB too
+//           await prisma.ticket.update({
+//             where: { id: ticket.id },
+//             data: { status: "USED", usedAt: new Date() },
+//           });
 
-          return reply.send({
-            valid: false,
-            reason: "Ticket marked as used on-chain",
-          });
-        }
+//           return reply.send({
+//             valid: false,
+//             reason: "Ticket marked as used on-chain",
+//           });
+//         }
 
-        // All checks passed - ticket is valid
-        return reply.send({
-          valid: true,
-          ticket: {
-            id: ticket.id,
-            eventName: event.name,
-            ticketSerial: ticket.ticketSerial,
-            holderAddress: ticket.ownerAddress,
-            ownerName: ticket.owner?.email || "Unknown",
-          },
-          chainVerified: chainVerification.valid,
-        });
-      } catch (error) {
-        if (error instanceof z.ZodError) {
-          return reply.status(400).send({ error: "Validation error", details: error.errors });
-        }
-        throw error;
-      }
-    }
-  );
+//         // All checks passed - ticket is valid
+//         return reply.send({
+//           valid: true,
+//           ticket: {
+//             id: ticket.id,
+//             eventName: event.name,
+//             ticketSerial: ticket.ticketSerial,
+//             holderAddress: ticket.ownerAddress,
+//             ownerName: ticket.owner?.email || "Unknown",
+//           },
+//           chainVerified: chainVerification.valid,
+//         });
+//       } catch (error) {
+//         if (error instanceof z.ZodError) {
+//           return reply.status(400).send({ error: "Validation error", details: error.errors });
+//         }
+//         throw error;
+//       }
+//     }
+//   );
 
   /**
    * POST /tickets/mark-used - Mark a ticket as used after verification
@@ -514,7 +522,130 @@ export async function ticketsRoutes(fastify: FastifyInstance): Promise<void> {
       });
     }
   );
-}
+
+
+fastify.post(
+  "/verify",
+  { preHandler: [fastify.authenticate, authorize("VERIFIER", "ADMIN")] },
+  async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      let body = request.body as any;
+
+      // NEW: If verifier sends UID (TKT-2-0003)
+      if (body.ticketUID) {
+        const parsed = parseTicketUID(body.ticketUID);
+        if (!parsed) {
+          return reply.send({
+            valid: false,
+            reason: "Invalid UID format",
+          });
+        }
+
+        // rewrite body to match existing schema
+        body.eventId = parsed.eventId;
+        body.ticketSerial = parsed.ticketSerial;
+      }
+
+      // Validate (still uses your Zod schema)
+      body = verifyTicketSchema.parse(body);
+
+      // 1. Lookup event from on-chain ID
+      const event = await prisma.event.findUnique({
+        where: { onChainEventId: body.eventId },
+      });
+
+      if (!event) {
+        return reply.send({ valid: false, reason: "Event not found" });
+      }
+
+      // 2. Lookup ticket by DB serial + event UUID
+      const ticket = await prisma.ticket.findUnique({
+        where: {
+          eventId_ticketSerial: {
+            eventId: event.id,
+            ticketSerial: body.ticketSerial,
+          },
+        },
+        include: { owner: true },
+      });
+
+      if (!ticket) {
+        return reply.send({ valid: false, reason: "Ticket not found" });
+      }
+
+      // 3. Local status checks
+      if (ticket.status === "USED") {
+        return reply.send({
+          valid: false,
+          reason: "Ticket already used",
+          usedAt: ticket.usedAt,
+        });
+      }
+
+      if (ticket.status !== "VALID") {
+        return reply.send({
+          valid: false,
+          reason: `Ticket status: ${ticket.status}`,
+        });
+      }
+
+      // 4. Address mismatch check
+      if (
+        ticket.ownerAddress.toLowerCase() !==
+        body.holderAddress.toLowerCase()
+      ) {
+        return reply.send({
+          valid: false,
+          reason: "Holder address mismatch",
+        });
+      }
+
+      // 5. On-chain verification
+      let chainVerification = { valid: false, used: false, balance: BigInt(0) };
+      try {
+        chainVerification = await verifyTicketOnChain(
+          body.eventId,
+          body.ticketSerial,
+          body.holderAddress
+        );
+      } catch {
+        console.warn("On-chain verification failed, using DB only");
+      }
+
+      if (chainVerification.used) {
+        await prisma.ticket.update({
+          where: { id: ticket.id },
+          data: { status: "USED", usedAt: new Date() },
+        });
+
+        return reply.send({
+          valid: false,
+          reason: "Ticket marked as used on-chain",
+        });
+      }
+
+      // 6. Final success response
+      return reply.send({
+        valid: true,
+        ticket: {
+          id: ticket.id,
+          eventName: event.name,
+          ticketSerial: ticket.ticketSerial,
+          holderAddress: ticket.ownerAddress,
+          ownerName: ticket.owner?.email || "Unknown",
+        },
+        chainVerified: chainVerification.valid,
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return reply
+          .status(400)
+          .send({ error: "Validation error", details: error.errors });
+      }
+      throw error;
+    }
+  }
+);
 
 /**
  * Generate QR code payload for a ticket
@@ -534,4 +665,4 @@ function generateQRPayload(
   };
   return Buffer.from(JSON.stringify(payload)).toString("base64");
 }
-
+}
