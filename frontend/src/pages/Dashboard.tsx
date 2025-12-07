@@ -19,10 +19,12 @@ function Dashboard() {
   const [transferAddress, setTransferAddress] = useState("");
   const [isTransferring, setIsTransferring] = useState(false);
   const [transferError, setTransferError] = useState<string | null>(null);
+  const [transferSuccess, setTransferSuccess] = useState<string | null>(null);
   
   // Refund state
   const [isRefunding, setIsRefunding] = useState(false);
   const [refundError, setRefundError] = useState<string | null>(null);
+  const [refundSuccess, setRefundSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     loadTickets();
@@ -56,35 +58,57 @@ function Dashboard() {
     
     // Validate address
     if (!/^0x[a-fA-F0-9]{40}$/.test(transferAddress)) {
-      setTransferError("Invalid Ethereum address");
+      setTransferError("Invalid Ethereum address. Must start with 0x followed by 40 hex characters.");
+      return;
+    }
+
+    // Prevent transfer to self
+    if (transferAddress.toLowerCase() === address.toLowerCase()) {
+      setTransferError("Cannot transfer to your own wallet address.");
       return;
     }
 
     setIsTransferring(true);
     setTransferError(null);
+    setTransferSuccess(null);
 
     try {
       // Execute on-chain transfer
+      console.log("Starting on-chain transfer...");
       const { txHash } = await transferTicketOnChain(
         selectedTicket.onChainEventId,
         transferAddress,
         1
       );
+      console.log("On-chain transfer complete, txHash:", txHash);
 
       // Record transfer in backend
-      await ticketsApi.recordTransfer({
+      console.log("Recording transfer in backend...");
+      const { error } = await ticketsApi.recordTransfer({
         ticketId: selectedTicket.id,
         toAddress: transferAddress,
         txHash,
       });
 
-      // Success - close modals and refresh
-      setShowTransferModal(false);
-      setSelectedTicket(null);
-      setTransferAddress("");
-      await loadTickets();
+      if (error) {
+        console.warn("Backend recording failed:", error);
+        // Still show success because blockchain transfer worked
+        setTransferSuccess(`Ticket transferred on-chain! Tx: ${txHash.slice(0, 10)}...`);
+      } else {
+        setTransferSuccess(`Ticket successfully transferred to ${transferAddress.slice(0, 6)}...${transferAddress.slice(-4)}`);
+      }
+
+      // Success - close modals and refresh after delay
+      setTimeout(() => {
+        setShowTransferModal(false);
+        setSelectedTicket(null);
+        setTransferAddress("");
+        setTransferSuccess(null);
+        loadTickets();
+      }, 2000);
     } catch (err) {
-      setTransferError(err instanceof Error ? err.message : "Transfer failed");
+      console.error("Transfer error:", err);
+      setTransferError(err instanceof Error ? err.message : "Transfer failed. Please try again.");
     } finally {
       setIsTransferring(false);
     }
@@ -102,22 +126,36 @@ function Dashboard() {
 
     setIsRefunding(true);
     setRefundError(null);
+    setRefundSuccess(null);
 
     try {
-      // Execute on-chain refund
+      // Execute on-chain refund (this burns the ticket and returns ETH)
+      console.log("Starting on-chain refund...");
       const { txHash } = await refundTicketOnChain(selectedTicket.onChainEventId);
+      console.log("On-chain refund complete, txHash:", txHash);
 
       // Record refund in backend
-      await ticketsApi.recordRefund({
+      console.log("Recording refund in backend...");
+      const { error } = await ticketsApi.recordRefund({
         ticketId: selectedTicket.id,
         txHash,
       });
 
-      // Success - close modal and refresh
-      setSelectedTicket(null);
-      await loadTickets();
+      if (error) {
+        console.warn("Backend recording failed:", error);
+      }
+
+      setRefundSuccess("Ticket refunded! ETH has been returned to your wallet.");
+
+      // Success - close modal and refresh after delay
+      setTimeout(() => {
+        setSelectedTicket(null);
+        setRefundSuccess(null);
+        loadTickets();
+      }, 2000);
     } catch (err) {
-      setRefundError(err instanceof Error ? err.message : "Refund failed");
+      console.error("Refund error:", err);
+      setRefundError(err instanceof Error ? err.message : "Refund failed. Please try again.");
     } finally {
       setIsRefunding(false);
     }
@@ -387,6 +425,16 @@ function Dashboard() {
               </div>
             )}
 
+            {/* Success Messages */}
+            {refundSuccess && (
+              <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm flex items-center gap-2">
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                {refundSuccess}
+              </div>
+            )}
+
             {/* Action Buttons */}
             <div className="space-y-2">
               {isConnected && (
@@ -455,6 +503,15 @@ function Dashboard() {
             {transferError && (
               <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
                 {transferError}
+              </div>
+            )}
+
+            {transferSuccess && (
+              <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm flex items-center gap-2">
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                {transferSuccess}
               </div>
             )}
 

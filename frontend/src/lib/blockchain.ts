@@ -145,16 +145,48 @@ export async function transferTicket(
 ): Promise<{ txHash: string; receipt: ethers.TransactionReceipt }> {
   const contract = await getContract();
   if (!contract) {
-    throw new Error("Contract not available.");
+    throw new Error("Contract not available. Please ensure MetaMask is connected and contract address is set.");
   }
 
   try {
+    console.log("Initiating transfer:", { onChainEventId, toAddress, quantity });
     const tx = await contract.transferTicket(onChainEventId, toAddress, quantity);
+    console.log("Transfer transaction sent:", tx.hash);
     const receipt = await tx.wait();
+    console.log("Transfer confirmed:", receipt);
     return { txHash: tx.hash, receipt };
   } catch (error: unknown) {
     console.error("Transfer ticket failed:", error);
-    throw error;
+    
+    // Parse common errors
+    if (error && typeof error === "object") {
+      const err = error as { code?: string; reason?: string; message?: string; data?: { message?: string } };
+      
+      if (err.code === "ACTION_REJECTED") {
+        throw new Error("Transaction was rejected by user.");
+      }
+      if (err.reason) {
+        // Common contract errors
+        if (err.reason.includes("Insufficient tickets")) {
+          throw new Error("You don't have any tickets to transfer for this event.");
+        }
+        if (err.reason.includes("Cannot transfer to zero")) {
+          throw new Error("Invalid recipient address.");
+        }
+        if (err.reason.includes("Cannot transfer to self")) {
+          throw new Error("Cannot transfer to yourself.");
+        }
+        throw new Error(err.reason);
+      }
+      if (err.data?.message) {
+        throw new Error(err.data.message);
+      }
+      if (err.message) {
+        throw new Error(err.message);
+      }
+    }
+    
+    throw new Error("Transfer failed. Please check your wallet and try again.");
   }
 }
 
@@ -166,16 +198,48 @@ export async function refundTicket(
 ): Promise<{ txHash: string; receipt: ethers.TransactionReceipt }> {
   const contract = await getContract();
   if (!contract) {
-    throw new Error("Contract not available.");
+    throw new Error("Contract not available. Please ensure MetaMask is connected and contract address is set.");
   }
 
   try {
+    console.log("Initiating refund for event:", onChainEventId);
     const tx = await contract.refundTicket(onChainEventId);
+    console.log("Refund transaction sent:", tx.hash);
     const receipt = await tx.wait();
+    console.log("Refund confirmed:", receipt);
     return { txHash: tx.hash, receipt };
   } catch (error: unknown) {
     console.error("Refund ticket failed:", error);
-    throw error;
+    
+    // Parse common errors
+    if (error && typeof error === "object") {
+      const err = error as { code?: string; reason?: string; message?: string; data?: { message?: string } };
+      
+      if (err.code === "ACTION_REJECTED") {
+        throw new Error("Transaction was rejected by user.");
+      }
+      if (err.reason) {
+        // Common contract errors
+        if (err.reason.includes("Cannot refund after event starts")) {
+          throw new Error("Cannot refund - the event has already started.");
+        }
+        if (err.reason.includes("No tickets to refund")) {
+          throw new Error("You don't have any tickets to refund for this event.");
+        }
+        if (err.reason.includes("Refund transfer failed")) {
+          throw new Error("Refund failed - contract may not have enough funds.");
+        }
+        throw new Error(err.reason);
+      }
+      if (err.data?.message) {
+        throw new Error(err.data.message);
+      }
+      if (err.message) {
+        throw new Error(err.message);
+      }
+    }
+    
+    throw new Error("Refund failed. Please check your wallet and try again.");
   }
 }
 

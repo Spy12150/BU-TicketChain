@@ -51,8 +51,24 @@ export async function ticketsRoutes(fastify: FastifyInstance): Promise<void> {
     async (request: FastifyRequest, reply: FastifyReply) => {
       const userId = request.user!.userId;
 
+      // Get user's wallet addresses
+      const userWallets = await prisma.wallet.findMany({
+        where: { userId },
+        select: { address: true },
+      });
+      const walletAddresses = userWallets.map((w) => w.address.toLowerCase());
+
+      // Query tickets by BOTH userId AND wallet addresses
+      // This ensures tickets transferred to user's wallet are shown
       const tickets = await prisma.ticket.findMany({
-        where: { ownerUserId: userId },
+        where: {
+          OR: [
+            { ownerUserId: userId },
+            ...(walletAddresses.length > 0
+              ? [{ ownerAddress: { in: walletAddresses } }]
+              : []),
+          ],
+        },
         include: {
           event: {
             select: {
@@ -229,13 +245,12 @@ export async function ticketsRoutes(fastify: FastifyInstance): Promise<void> {
 
         // Update ticket and record transaction
         const result = await prisma.$transaction(async (tx) => {
-          // Update ticket owner
+          // Mark original ticket as TRANSFERRED (keep original owner info for history)
           const updatedTicket = await tx.ticket.update({
             where: { id: body.ticketId },
             data: {
-              ownerUserId: recipientWallet?.userId || null,
-              ownerAddress: body.toAddress.toLowerCase(),
               status: "TRANSFERRED",
+              // Keep original ownerUserId and ownerAddress for audit trail
             },
           });
 
@@ -247,6 +262,7 @@ export async function ticketsRoutes(fastify: FastifyInstance): Promise<void> {
               ownerAddress: body.toAddress.toLowerCase(),
               ticketSerial: ticket.ticketSerial,
               status: "VALID",
+              purchasedAt: new Date(), // Track when recipient received it
             },
           });
 
