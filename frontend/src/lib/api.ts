@@ -136,8 +136,8 @@ export const tickets = {
 
   verify: (
     data:
-      | { ticketUID: string; holderAddress: string } 
-      | { eventId: number; ticketSerial: number; holderAddress: string; nonce: string } 
+      | { ticketUID: string }
+      | { eventId: number; ticketSerial: number; nonce?: string }
   ) =>
     request<VerifyResult>("/tickets/verify", {
       method: "POST",

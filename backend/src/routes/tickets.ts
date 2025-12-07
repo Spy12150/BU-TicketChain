@@ -35,7 +35,8 @@ const refundTicketSchema = z.object({
 const verifyTicketSchema = z.object({
   eventId: z.number().int().nonnegative(),
   ticketSerial: z.number().int().nonnegative(),
-  holderAddress: z.string(),
+  // holderAddress is no longer required from client; we will use the owner on record
+  holderAddress: z.string().optional(),
   nonce: z.string().optional(),
   signature: z.string().optional(),
 });
@@ -605,24 +606,13 @@ fastify.post(
         });
       }
 
-      // 4. Address mismatch check
-      if (
-        ticket.ownerAddress.toLowerCase() !==
-        body.holderAddress.toLowerCase()
-      ) {
-        return reply.send({
-          valid: false,
-          reason: "Holder address mismatch",
-        });
-      }
-
-      // 5. On-chain verification
+      // 4. On-chain verification using the owner address on record
       let chainVerification = { valid: false, used: false, balance: BigInt(0) };
       try {
         chainVerification = await verifyTicketOnChain(
           body.eventId,
           body.ticketSerial,
-          body.holderAddress
+          ticket.ownerAddress
         );
       } catch {
         console.warn("On-chain verification failed, using DB only");

@@ -437,35 +437,41 @@ function Dashboard() {
 
             {/* Action Buttons */}
             <div className="space-y-2">
-              {isConnected && (
-                <>
-                  <button
-                    onClick={() => setShowTransferModal(true)}
-                    className="w-full btn-secondary flex items-center justify-center gap-2"
-                  >
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-                    </svg>
-                    Transfer Ticket
+              {!isConnected && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-sm">
+                  Connect your wallet to transfer or refund this ticket.
+                  <button onClick={connect} className="mt-2 w-full btn-accent">
+                    Connect Wallet
                   </button>
-                  
-                  {canRefund(selectedTicket) && (
-                    <button
-                      onClick={handleRefund}
-                      disabled={isRefunding}
-                      className="w-full btn-outline text-red-600 border-red-300 hover:bg-red-50 flex items-center justify-center gap-2"
-                    >
-                      {isRefunding ? (
-                        <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
-                      ) : (
-                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                        </svg>
-                      )}
-                      {isRefunding ? "Processing..." : "Request Refund"}
-                    </button>
+                </div>
+              )}
+
+              <button
+                onClick={() => setShowTransferModal(true)}
+                disabled={!isConnected}
+                className="w-full btn-secondary flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                </svg>
+                Transfer Ticket
+              </button>
+              
+              {canRefund(selectedTicket) && (
+                <button
+                  onClick={handleRefund}
+                  disabled={!isConnected || isRefunding}
+                  className="w-full btn-outline text-red-600 border-red-300 hover:bg-red-50 flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {isRefunding ? (
+                    <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
                   )}
-                </>
+                  {isRefunding ? "Processing..." : "Request Refund"}
+                </button>
               )}
 
               <button

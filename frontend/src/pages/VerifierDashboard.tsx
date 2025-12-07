@@ -447,7 +447,6 @@ function VerifierDashboard() {
   const [error, setError] = useState<string | null>(null);
 
   const [uidInput, setUidInput] = useState("");
-  const [holderAddress, setHolderAddress] = useState("");
 
   const [verifyMode, setVerifyMode] = useState<"qr" | "uid">("uid");
 
@@ -504,13 +503,8 @@ function VerifierDashboard() {
     setResult(null);
 
     try {
-      if (!holderAddress.trim()) {
-        throw new Error("Please enter the ticket holder's wallet address.");
-      }
-
       const { data, error } = await ticketsApi.verify({
         ticketUID,
-        holderAddress,
       });
 
       if (error) {
@@ -560,13 +554,8 @@ function VerifierDashboard() {
         throw new Error("QR code does not contain a valid Ticket UID.");
       }
 
-      if (!holderAddress.trim()) {
-        throw new Error("Enter holder wallet address before scanning.");
-      }
-
       const { data, error } = await ticketsApi.verify({
         ticketUID,
-        holderAddress,
       });
 
       if (error) {
@@ -668,20 +657,6 @@ function VerifierDashboard() {
           >
             📷 Scan QR
           </button>
-        </div>
-      )}
-
-      {/* Holder Address Input (required for both modes) */}
-      {!result && (
-        <div className="card p-4 mb-4">
-          <label className="font-semibold text-slate-700">Holder Wallet Address</label>
-          <input
-            type="text"
-            value={holderAddress}
-            onChange={(e) => setHolderAddress(e.target.value)}
-            placeholder="0x Holder Wallet Address"
-            className="input mt-2 font-mono"
-          />
         </div>
       )}
 
