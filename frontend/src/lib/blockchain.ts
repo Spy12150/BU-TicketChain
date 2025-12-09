@@ -300,5 +300,23 @@ export function parseEth(ethValue: string): bigint {
   return ethers.parseEther(ethValue);
 }
 
+/**
+ * Get the contract's ETH balance
+ */
+export async function getContractBalance(): Promise<string> {
+  const provider = getProvider();
+  if (!provider) {
+    throw new Error("Provider not available");
+  }
+  
+  const contractAddress = import.meta.env.VITE_CONTRACT_ADDRESS;
+  if (!contractAddress) {
+    throw new Error("Contract address not set");
+  }
+  
+  const balance = await provider.getBalance(contractAddress);
+  return ethers.formatEther(balance);
+}
+
 export { ethers };
 
