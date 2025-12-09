@@ -453,6 +453,7 @@ function VerifierDashboard() {
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const [cameraLoading, setCameraLoading] = useState(false);
+  const [scannerReady, setScannerReady] = useState(false);
 
   // Clean up scanner on unmount
   useEffect(() => {
@@ -467,63 +468,91 @@ function VerifierDashboard() {
   const startCamera = async () => {
     setError(null);
     setCameraLoading(true);
+    setScannerReady(false);
     
     try {
-      // Create scanner instance
-      scannerRef.current = new Html5Qrcode("qr-reader");
+      // Small delay to ensure DOM element exists
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      const element = document.getElementById("qr-reader");
+      if (!element) {
+        throw new Error("QR reader element not found");
+      }
+      
+      // Clear any previous content
+      element.innerHTML = "";
+      
+      // Create new scanner instance
+      scannerRef.current = new Html5Qrcode("qr-reader", { verbose: false });
+      
+      console.log("Starting QR scanner...");
       
       await scannerRef.current.start(
         { facingMode: "environment" },
         {
           fps: 10,
-          qrbox: { width: 250, height: 250 },
+          qrbox: { width: 200, height: 200 },
+          aspectRatio: 1.0,
         },
         // Success callback - QR code detected!
         async (decodedText) => {
           console.log("QR Code detected:", decodedText);
           // Stop scanning and verify
-          await stopCamera();
+          stopCamera();
           verifyQRPayload(decodedText);
         },
         // Error callback (called frequently when no QR found - ignore)
-        () => {}
+        (_errorMessage) => {
+          // Silently ignore - this fires constantly when no QR is visible
+        }
       );
       
+      console.log("QR scanner started successfully");
       setIsScanning(true);
+      setScannerReady(true);
       setResult(null);
     } catch (err) {
       console.error("Scanner error:", err);
       stopCamera();
       if (err instanceof Error) {
-        if (err.message.includes("Permission")) {
-          setError("Camera access denied. Please allow camera permissions.");
+        if (err.message.includes("Permission") || err.message.includes("NotAllowed")) {
+          setError("Camera access denied. Please allow camera permissions in your browser.");
+        } else if (err.message.includes("NotFound") || err.message.includes("not found")) {
+          setError("No camera found on this device.");
+        } else if (err.message.includes("NotReadable") || err.message.includes("in use")) {
+          setError("Camera is in use by another application.");
         } else {
           setError(`Scanner error: ${err.message}`);
         }
       } else if (typeof err === "string") {
-        setError(err);
+        if (err.includes("Permission")) {
+          setError("Camera access denied. Please allow camera permissions.");
+        } else {
+          setError(err);
+        }
       } else {
-        setError("Unable to start QR scanner.");
+        setError("Unable to start QR scanner. Please check camera permissions.");
       }
     } finally {
       setCameraLoading(false);
     }
   };
 
-  const stopCamera = async () => {
+  const stopCamera = () => {
     if (scannerRef.current) {
       try {
-        const state = scannerRef.current.getState();
-        if (state === 2) { // SCANNING state
-          await scannerRef.current.stop();
-        }
-        scannerRef.current.clear();
+        scannerRef.current.stop().then(() => {
+          console.log("Scanner stopped");
+        }).catch((e) => {
+          console.log("Scanner stop error (may already be stopped):", e);
+        });
       } catch (e) {
         console.log("Scanner cleanup:", e);
       }
       scannerRef.current = null;
     }
     setIsScanning(false);
+    setScannerReady(false);
     setCameraLoading(false);
   };
 
@@ -730,42 +759,59 @@ function VerifierDashboard() {
       {!result && verifyMode === "qr" && (
         <>
           <div className="card overflow-hidden mb-4">
-            <div className="bg-black relative" style={{ minHeight: "300px" }}>
-              {/* QR Reader container - html5-qrcode will render here */}
+            {/* QR Reader container - always present in DOM */}
+            <div className="relative bg-slate-900" style={{ minHeight: "350px" }}>
+              {/* The actual scanner renders here */}
               <div 
                 id="qr-reader" 
-                className={`w-full ${isScanning ? 'block' : 'hidden'}`}
-                style={{ minHeight: "300px" }}
+                style={{ 
+                  width: "100%", 
+                  minHeight: "350px",
+                  display: isScanning ? "block" : "none"
+                }}
               />
               
               {/* Loading state */}
               {cameraLoading && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-white bg-black z-10">
-                  <div className="w-10 h-10 border-4 border-white border-t-transparent rounded-full animate-spin mb-3" />
-                  <p>Starting scanner...</p>
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-white bg-slate-900 z-20">
+                  <div className="w-12 h-12 border-4 border-primary-500 border-t-transparent rounded-full animate-spin mb-4" />
+                  <p className="text-lg">Starting camera...</p>
+                  <p className="text-slate-400 text-sm mt-2">Please allow camera access if prompted</p>
                 </div>
               )}
               
               {/* Start button - shown when not scanning and not loading */}
               {!isScanning && !cameraLoading && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
-                  <svg className="w-16 h-16 mb-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <path d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h2M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
-                  </svg>
-                  <button className="btn-primary" onClick={startCamera}>
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-white z-10">
+                  <div className="w-24 h-24 mb-6 rounded-2xl bg-slate-800 flex items-center justify-center">
+                    <svg className="w-12 h-12 text-primary-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <path d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h2M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+                    </svg>
+                  </div>
+                  <button className="btn-primary text-lg px-8 py-3" onClick={startCamera}>
                     Start QR Scanner
                   </button>
-                  <p className="text-slate-400 text-sm mt-2">
-                    Point camera at ticket QR code
+                  <p className="text-slate-400 text-sm mt-4">
+                    Camera will scan ticket QR codes automatically
                   </p>
+                </div>
+              )}
+              
+              {/* Scanning indicator */}
+              {isScanning && scannerReady && (
+                <div className="absolute bottom-4 left-0 right-0 flex justify-center z-10 pointer-events-none">
+                  <div className="bg-black/70 text-white px-4 py-2 rounded-full text-sm flex items-center gap-2">
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                    Scanning for QR codes...
+                  </div>
                 </div>
               )}
             </div>
             
             {/* Stop button */}
             {isScanning && (
-              <div className="p-3 bg-slate-100 flex justify-center gap-3">
-                <button onClick={stopCamera} className="btn-secondary text-sm">
+              <div className="p-4 bg-slate-100 flex justify-center">
+                <button onClick={stopCamera} className="btn-secondary">
                   Stop Scanner
                 </button>
               </div>
