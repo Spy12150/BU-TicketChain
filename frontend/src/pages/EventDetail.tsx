@@ -60,11 +60,30 @@ function EventDetail() {
     try {
       const eventListings = await getEventListings(event.onChainEventId);
       console.log("Raw listings from contract:", eventListings);
-      // Show all listings - we'll mark user's own listings in the UI
-      setListings(eventListings);
+      
+      // Add mock listing for demo purposes (TKT-0-0003)
+      const mockListing: MarketplaceListing = {
+        listingId: 999,
+        seller: "0x1234567890abcdef1234567890abcdef12345678",
+        eventId: event.onChainEventId,
+        price: BigInt("1000000000000000"), // 0.03 ETH
+        active: true,
+      };
+      
+      // Combine real listings with mock
+      const allListings = [...eventListings, mockListing];
+      setListings(allListings)
     } catch (err) {
       console.error("Failed to load listings:", err);
-      setMarketplaceError("Failed to load resale listings. Make sure contract is deployed.");
+      // Still show mock listing even if contract call fails
+      const mockListing: MarketplaceListing = {
+        listingId: 999,
+        seller: "0x1234567890abcdef1234567890abcdef12345678",
+        eventId: event.onChainEventId,
+        price: BigInt("30000000000000000"), // 0.03 ETH
+        active: true,
+      };
+      setListings([mockListing]);
     } finally {
       setLoadingListings(false);
     }
@@ -419,8 +438,8 @@ function EventDetail() {
         </div>
 
         {/* Sidebar - Purchase Card */}
-        <div className="lg:col-span-1">
-          <div className="card p-6 sticky top-24">
+        <div className="lg:col-span-1 space-y-6">
+          <div className="card p-6">
             <h2 className="text-lg font-display font-semibold text-slate-900 mb-4">
               Get Your Ticket
             </h2>
@@ -567,7 +586,7 @@ function EventDetail() {
 
           {/* Marketplace - Resale Listings */}
           {!event.hasEnded && (
-            <div className="card p-6 mt-6">
+            <div className="card p-6">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-display font-semibold text-slate-900">
                   Resale Marketplace
@@ -630,9 +649,14 @@ function EventDetail() {
                                 Your Listing
                               </span>
                             )}
+                            {listing.listingId === 999 && (
+                              <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded-full">
+                                Demo
+                              </span>
+                            )}
                           </div>
                           <p className="text-xs text-slate-500">
-                            Seller: {listing.seller.slice(0, 6)}...{listing.seller.slice(-4)}
+                            TKT-{listing.eventId}-0003 • Seller: {listing.seller.slice(0, 6)}...{listing.seller.slice(-4)}
                           </p>
                         </div>
                         
