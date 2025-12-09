@@ -176,9 +176,15 @@ function Dashboard() {
     });
   };
 
-  const canRefund = (ticket: Ticket) => {
+  const refundStatus = (ticket: Ticket) => {
     const eventStart = new Date(ticket.event.startTime);
-    return eventStart > new Date() && ticket.status === "VALID";
+    if (ticket.status !== "VALID") {
+      return { can: false, reason: `Ticket status: ${ticket.status}` };
+    }
+    if (eventStart <= new Date()) {
+      return { can: false, reason: "Event has already started" };
+    }
+    return { can: true };
   };
 
   const validTickets = tickets.filter((t) => t.status === "VALID");
@@ -456,23 +462,31 @@ function Dashboard() {
                 </svg>
                 Transfer Ticket
               </button>
-              
-              {canRefund(selectedTicket) && (
-                <button
-                  onClick={handleRefund}
-                  disabled={!isConnected || isRefunding}
-                  className="w-full btn-outline text-red-600 border-red-300 hover:bg-red-50 flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  {isRefunding ? (
-                    <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                  )}
-                  {isRefunding ? "Processing..." : "Request Refund"}
-                </button>
-              )}
+
+              {(() => {
+                const eligibility = refundStatus(selectedTicket);
+                return (
+                  <div className="space-y-1">
+                    <button
+                      onClick={handleRefund}
+                      disabled={!isConnected || isRefunding || !eligibility.can}
+                      className="w-full btn-outline text-red-600 border-red-300 hover:bg-red-50 flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      {isRefunding ? (
+                        <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                      )}
+                      {isRefunding ? "Processing..." : "Request Refund"}
+                    </button>
+                    {!eligibility.can && (
+                      <p className="text-xs text-slate-500 text-center">{eligibility.reason}</p>
+                    )}
+                  </div>
+                );
+              })()}
 
               <button
                 onClick={() => setSelectedTicket(null)}
