@@ -6,6 +6,7 @@ import { ethers, BrowserProvider, Contract } from "ethers";
 
 // Contract ABI (minimal interface for frontend)
 const TICKET_CHAIN_ABI = [
+  // Core functions
   "function buyTicket(uint256 eventId) payable",
   "function transferTicket(uint256 eventId, address to, uint256 quantity)",
   "function refundTicket(uint256 eventId)",
@@ -13,7 +14,18 @@ const TICKET_CHAIN_ABI = [
   "function balanceOf(address account, uint256 id) view returns (uint256)",
   "function getEvent(uint256 eventId) view returns (tuple(uint256 id, string name, uint256 price, uint256 discountedPrice, uint256 maxSupply, uint256 totalSold, uint256 startTime, uint256 endTime, bool exists))",
   "function getRemainingSupply(uint256 eventId) view returns (uint256)",
+  // Marketplace functions
+  "function listTicketForSale(uint256 eventId, uint256 price) returns (uint256)",
+  "function buyListedTicket(uint256 listingId) payable",
+  "function cancelListing(uint256 listingId)",
+  "function getListing(uint256 listingId) view returns (tuple(address seller, uint256 eventId, uint256 price, bool active))",
+  "function userListings(address seller, uint256 eventId) view returns (uint256)",
+  "function getEventListings(uint256 eventId) view returns (uint256[], tuple(address seller, uint256 eventId, uint256 price, bool active)[])",
+  // Events
   "event TicketPurchased(uint256 indexed eventId, address indexed buyer, uint256 pricePaid, uint256 ticketSerial, uint256 quantity)",
+  "event TicketListed(uint256 indexed listingId, uint256 indexed eventId, address indexed seller, uint256 price)",
+  "event TicketSold(uint256 indexed listingId, uint256 indexed eventId, address indexed seller, address buyer, uint256 price)",
+  "event ListingCancelled(uint256 indexed listingId, uint256 indexed eventId, address indexed seller)",
 ];
 
 // Contract address - should be set after deployment
@@ -316,6 +328,223 @@ export async function getContractBalance(): Promise<string> {
   
   const balance = await provider.getBalance(contractAddress);
   return ethers.formatEther(balance);
+}
+
+// ============ Marketplace Functions ============
+
+/**
+ * List a ticket for sale on the marketplace
+ */
+export async function listTicketForSale(
+  onChainEventId: number,
+  priceWei: string
+): Promise<{ txHash: string; listingId: number }> {
+  const contract = await getContract();
+  if (!contract) {
+    throw new Error("Contract not available.");
+  }
+
+  try {
+    console.log("Listing ticket for sale:", { onChainEventId, priceWei });
+    const tx = await contract.listTicketForSale(onChainEventId, priceWei);
+    console.log("List transaction sent:", tx.hash);
+    const receipt = await tx.wait();
+    console.log("Listing confirmed:", receipt);
+    
+    // Parse listing ID from events
+    let listingId = 0;
+    for (const log of receipt.logs) {
+      try {
+        const parsed = contract.interface.parseLog(log);
+        if (parsed?.name === "TicketListed") {
+          listingId = Number(parsed.args.listingId);
+          break;
+        }
+      } catch {
+        // Not our event
+      }
+    }
+    
+    return { txHash: tx.hash, listingId };
+  } catch (error: unknown) {
+    console.error("List ticket failed:", error);
+    
+    if (error && typeof error === "object") {
+      const err = error as { code?: string; reason?: string; message?: string };
+      
+      if (err.code === "ACTION_REJECTED") {
+        throw new Error("Transaction was rejected by user.");
+      }
+      if (err.reason) {
+        if (err.reason.includes("No tickets to list")) {
+          throw new Error("You don't have any tickets to list for this event.");
+        }
+        if (err.reason.includes("Already have a listing")) {
+          throw new Error("You already have a listing for this event.");
+        }
+        throw new Error(err.reason);
+      }
+    }
+    
+    throw new Error("Failed to list ticket. Please try again.");
+  }
+}
+
+/**
+ * Buy a listed ticket from the marketplace
+ */
+export async function buyListedTicket(
+  listingId: number,
+  priceWei: string
+): Promise<{ txHash: string; receipt: ethers.TransactionReceipt }> {
+  const contract = await getContract();
+  if (!contract) {
+    throw new Error("Contract not available.");
+  }
+
+  try {
+    console.log("Buying listed ticket:", { listingId, priceWei });
+    const tx = await contract.buyListedTicket(listingId, { value: priceWei });
+    console.log("Buy transaction sent:", tx.hash);
+    const receipt = await tx.wait();
+    console.log("Purchase confirmed:", receipt);
+    
+    return { txHash: tx.hash, receipt };
+  } catch (error: unknown) {
+    console.error("Buy listed ticket failed:", error);
+    
+    if (error && typeof error === "object") {
+      const err = error as { code?: string; reason?: string; message?: string };
+      
+      if (err.code === "ACTION_REJECTED") {
+        throw new Error("Transaction was rejected by user.");
+      }
+      if (err.reason) {
+        if (err.reason.includes("Listing not active")) {
+          throw new Error("This listing is no longer available.");
+        }
+        if (err.reason.includes("Cannot buy own listing")) {
+          throw new Error("You cannot buy your own listing.");
+        }
+        if (err.reason.includes("Insufficient payment")) {
+          throw new Error("Insufficient payment amount.");
+        }
+        if (err.reason.includes("Seller no longer has ticket")) {
+          throw new Error("The seller no longer has this ticket.");
+        }
+        throw new Error(err.reason);
+      }
+    }
+    
+    throw new Error("Failed to buy ticket. Please try again.");
+  }
+}
+
+/**
+ * Cancel a ticket listing
+ */
+export async function cancelListing(
+  listingId: number
+): Promise<{ txHash: string }> {
+  const contract = await getContract();
+  if (!contract) {
+    throw new Error("Contract not available.");
+  }
+
+  try {
+    console.log("Cancelling listing:", listingId);
+    const tx = await contract.cancelListing(listingId);
+    console.log("Cancel transaction sent:", tx.hash);
+    await tx.wait();
+    console.log("Listing cancelled");
+    
+    return { txHash: tx.hash };
+  } catch (error: unknown) {
+    console.error("Cancel listing failed:", error);
+    
+    if (error && typeof error === "object") {
+      const err = error as { code?: string; reason?: string; message?: string };
+      
+      if (err.code === "ACTION_REJECTED") {
+        throw new Error("Transaction was rejected by user.");
+      }
+      if (err.reason) {
+        throw new Error(err.reason);
+      }
+    }
+    
+    throw new Error("Failed to cancel listing. Please try again.");
+  }
+}
+
+/**
+ * Get a user's listing for an event
+ */
+export async function getUserListing(
+  userAddress: string,
+  onChainEventId: number
+): Promise<{ listingId: number; price: bigint; active: boolean } | null> {
+  const contract = await getContract();
+  if (!contract) {
+    return null;
+  }
+
+  try {
+    const listingId = await contract.userListings(userAddress, onChainEventId);
+    if (Number(listingId) === 0) {
+      return null;
+    }
+    
+    const listing = await contract.getListing(listingId);
+    return {
+      listingId: Number(listingId),
+      price: listing.price,
+      active: listing.active,
+    };
+  } catch (error) {
+    console.error("Failed to get user listing:", error);
+    return null;
+  }
+}
+
+export interface MarketplaceListing {
+  listingId: number;
+  seller: string;
+  eventId: number;
+  price: bigint;
+  active: boolean;
+}
+
+/**
+ * Get all active listings for an event
+ */
+export async function getEventListings(
+  onChainEventId: number
+): Promise<MarketplaceListing[]> {
+  const contract = await getContract();
+  if (!contract) {
+    return [];
+  }
+
+  try {
+    const [listingIds, listingDetails] = await contract.getEventListings(onChainEventId);
+    
+    const listings: MarketplaceListing[] = [];
+    for (let i = 0; i < listingIds.length; i++) {
+      listings.push({
+        listingId: Number(listingIds[i]),
+        seller: listingDetails[i].seller,
+        eventId: Number(listingDetails[i].eventId),
+        price: listingDetails[i].price,
+        active: listingDetails[i].active,
+      });
+    }
+    
+    return listings;
+  } catch (error) {
+    console.error("Failed to get event listings:", error);
+    return [];
+  }
 }
 
 export { ethers };

@@ -27,6 +27,13 @@ contract TicketChain is ERC1155, Ownable, ReentrancyGuard {
         bool exists;
     }
 
+    struct TicketListing {
+        address seller;
+        uint256 eventId;
+        uint256 price;              // Asking price in wei
+        bool active;
+    }
+
     // ============ State Variables ============
 
     /// @dev Mapping from eventId to EventInfo
@@ -48,6 +55,15 @@ contract TicketChain is ERC1155, Ownable, ReentrancyGuard {
     
     /// @dev Mapping to track the next serial number for each event
     mapping(uint256 => uint256) public nextTicketSerial;
+
+    /// @dev Counter for generating unique listing IDs
+    uint256 public nextListingId;
+
+    /// @dev Mapping from listingId to TicketListing
+    mapping(uint256 => TicketListing) public listings;
+
+    /// @dev Mapping from seller => eventId => listingId (for quick lookup)
+    mapping(address => mapping(uint256 => uint256)) public userListings;
 
     // ============ Events ============
 
@@ -94,6 +110,27 @@ contract TicketChain is ERC1155, Ownable, ReentrancyGuard {
         address indexed holder
     );
 
+    event TicketListed(
+        uint256 indexed listingId,
+        uint256 indexed eventId,
+        address indexed seller,
+        uint256 price
+    );
+
+    event TicketSold(
+        uint256 indexed listingId,
+        uint256 indexed eventId,
+        address indexed seller,
+        address buyer,
+        uint256 price
+    );
+
+    event ListingCancelled(
+        uint256 indexed listingId,
+        uint256 indexed eventId,
+        address indexed seller
+    );
+
     // ============ Modifiers ============
 
     modifier eventExists(uint256 eventId) {
@@ -105,6 +142,7 @@ contract TicketChain is ERC1155, Ownable, ReentrancyGuard {
 
     constructor() ERC1155("") Ownable(msg.sender) {
         nextEventId = 1; // Start event IDs at 1
+        nextListingId = 0; // Listings start at 1 (0 means no listing)
     }
 
     // ============ Admin Functions ============
@@ -222,7 +260,7 @@ contract TicketChain is ERC1155, Ownable, ReentrancyGuard {
     }
 
     /**
-     * @dev Transfer a ticket to another address.
+     * @dev Transfer a ticket to another address (free transfer/gift).
      * Uses ERC1155 safeTransferFrom internally.
      * @param eventId The event ID
      * @param to The recipient address
@@ -243,6 +281,145 @@ contract TicketChain is ERC1155, Ownable, ReentrancyGuard {
         safeTransferFrom(msg.sender, to, eventId, quantity, "");
         
         emit TicketTransferred(eventId, msg.sender, to, quantity);
+    }
+
+    // ============ Marketplace Functions ============
+
+    /**
+     * @dev List a ticket for sale on the marketplace.
+     * @param eventId The event ID
+     * @param price The asking price in wei
+     * @return listingId The ID of the created listing
+     */
+    function listTicketForSale(
+        uint256 eventId,
+        uint256 price
+    ) external nonReentrant eventExists(eventId) returns (uint256 listingId) {
+        require(balanceOf(msg.sender, eventId) >= 1, "No tickets to list");
+        require(price > 0, "Price must be greater than 0");
+        require(userListings[msg.sender][eventId] == 0, "Already have a listing for this event");
+        
+        // Check event hasn't ended
+        require(block.timestamp < events[eventId].endTime, "Event has ended");
+
+        listingId = ++nextListingId;
+        
+        listings[listingId] = TicketListing({
+            seller: msg.sender,
+            eventId: eventId,
+            price: price,
+            active: true
+        });
+        
+        userListings[msg.sender][eventId] = listingId;
+        
+        emit TicketListed(listingId, eventId, msg.sender, price);
+        
+        return listingId;
+    }
+
+    /**
+     * @dev Buy a listed ticket. Payment goes directly to the seller.
+     * @param listingId The ID of the listing to buy
+     */
+    function buyListedTicket(uint256 listingId) external payable nonReentrant {
+        TicketListing storage listing = listings[listingId];
+        
+        require(listing.active, "Listing not active");
+        require(msg.sender != listing.seller, "Cannot buy own listing");
+        require(msg.value >= listing.price, "Insufficient payment");
+        
+        // Verify seller still has the ticket
+        require(balanceOf(listing.seller, listing.eventId) >= 1, "Seller no longer has ticket");
+        
+        // Check event hasn't ended
+        require(block.timestamp < events[listing.eventId].endTime, "Event has ended");
+        
+        address seller = listing.seller;
+        uint256 eventId = listing.eventId;
+        uint256 price = listing.price;
+        
+        // Deactivate listing
+        listing.active = false;
+        userListings[seller][eventId] = 0;
+        
+        // Transfer ticket from seller to buyer
+        ticketsByUser[eventId][seller] -= 1;
+        ticketsByUser[eventId][msg.sender] += 1;
+        
+        // Use internal _safeTransferFrom to transfer the NFT
+        _safeTransferFrom(seller, msg.sender, eventId, 1, "");
+        
+        // Pay the seller
+        (bool success, ) = payable(seller).call{value: price}("");
+        require(success, "Payment to seller failed");
+        
+        // Refund excess payment to buyer
+        if (msg.value > price) {
+            (bool refundSuccess, ) = payable(msg.sender).call{value: msg.value - price}("");
+            require(refundSuccess, "Refund failed");
+        }
+        
+        emit TicketSold(listingId, eventId, seller, msg.sender, price);
+    }
+
+    /**
+     * @dev Cancel a ticket listing.
+     * @param listingId The ID of the listing to cancel
+     */
+    function cancelListing(uint256 listingId) external nonReentrant {
+        TicketListing storage listing = listings[listingId];
+        
+        require(listing.active, "Listing not active");
+        require(listing.seller == msg.sender, "Not the seller");
+        
+        listing.active = false;
+        userListings[msg.sender][listing.eventId] = 0;
+        
+        emit ListingCancelled(listingId, listing.eventId, msg.sender);
+    }
+
+    /**
+     * @dev Get listing details.
+     * @param listingId The listing ID
+     * @return The TicketListing struct
+     */
+    function getListing(uint256 listingId) external view returns (TicketListing memory) {
+        return listings[listingId];
+    }
+
+    /**
+     * @dev Get all active listings for an event.
+     * @param eventId The event ID
+     * @return activeListings Array of active listing IDs
+     * @return listingDetails Array of listing details
+     */
+    function getEventListings(uint256 eventId) external view returns (
+        uint256[] memory activeListings,
+        TicketListing[] memory listingDetails
+    ) {
+        // First pass: count active listings for this event
+        uint256 count = 0;
+        for (uint256 i = 1; i <= nextListingId; i++) {
+            if (listings[i].eventId == eventId && listings[i].active) {
+                count++;
+            }
+        }
+
+        // Second pass: populate arrays
+        activeListings = new uint256[](count);
+        listingDetails = new TicketListing[](count);
+        uint256 index = 0;
+        
+        for (uint256 i = 1; i <= nextListingId; i++) {
+            if (listings[i].eventId == eventId && listings[i].active) {
+                activeListings[index] = i;
+                listingDetails[index] = listings[i];
+                index++;
+            }
+        }
+
+        return (activeListings, listingDetails);
     }
 
     /**

@@ -3,7 +3,14 @@ import { QRCodeSVG } from "qrcode.react";
 import { tickets as ticketsApi, Ticket } from "../lib/api";
 import { useAuthStore } from "../stores/authStore";
 import { useWalletStore } from "../stores/walletStore";
-import { transferTicket as transferTicketOnChain, refundTicket as refundTicketOnChain } from "../lib/blockchain";
+import { 
+  transferTicket as transferTicketOnChain, 
+  refundTicket as refundTicketOnChain,
+  listTicketForSale as listTicketOnChain,
+  cancelListing as cancelListingOnChain,
+  getUserListing,
+  ethers,
+} from "../lib/blockchain";
 
 function Dashboard() {
   const { user, linkWallet } = useAuthStore();
@@ -26,6 +33,15 @@ function Dashboard() {
   const [refundError, setRefundError] = useState<string | null>(null);
   const [refundSuccess, setRefundSuccess] = useState<string | null>(null);
 
+  // Listing state (marketplace)
+  const [showListModal, setShowListModal] = useState(false);
+  const [listPriceEth, setListPriceEth] = useState("");
+  const [isListing, setIsListing] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
+  const [listSuccess, setListSuccess] = useState<string | null>(null);
+  const [currentListing, setCurrentListing] = useState<{ listingId: number; price: bigint; active: boolean } | null>(null);
+  const [isCancellingListing, setIsCancellingListing] = useState(false);
+
   useEffect(() => {
     loadTickets();
   }, []);
@@ -36,6 +52,19 @@ function Dashboard() {
       linkWallet(address);
     }
   }, [isConnected, address, user]);
+
+  // Check if selected ticket has an active listing
+  useEffect(() => {
+    const checkListing = async () => {
+      if (selectedTicket && address) {
+        const listing = await getUserListing(address, selectedTicket.onChainEventId);
+        setCurrentListing(listing);
+      } else {
+        setCurrentListing(null);
+      }
+    };
+    checkListing();
+  }, [selectedTicket, address]);
 
   const loadTickets = async () => {
     setIsLoading(true);
@@ -158,6 +187,69 @@ function Dashboard() {
       setRefundError(err instanceof Error ? err.message : "Refund failed. Please try again.");
     } finally {
       setIsRefunding(false);
+    }
+  };
+
+  const handleListForSale = async () => {
+    if (!selectedTicket || !address || !listPriceEth) return;
+
+    const price = parseFloat(listPriceEth);
+    if (isNaN(price) || price <= 0) {
+      setListError("Please enter a valid price greater than 0");
+      return;
+    }
+
+    setIsListing(true);
+    setListError(null);
+    setListSuccess(null);
+
+    try {
+      const priceWei = ethers.parseEther(listPriceEth).toString();
+      console.log("Listing ticket for sale:", { eventId: selectedTicket.onChainEventId, priceWei });
+      
+      const { txHash, listingId } = await listTicketOnChain(selectedTicket.onChainEventId, priceWei);
+      console.log("Listing created:", { txHash, listingId });
+
+      setListSuccess(`Ticket listed for ${listPriceEth} ETH! Listing ID: ${listingId}`);
+
+      // Update local listing state
+      setCurrentListing({ listingId, price: ethers.parseEther(listPriceEth), active: true });
+
+      setTimeout(() => {
+        setShowListModal(false);
+        setListPriceEth("");
+        setListSuccess(null);
+      }, 2000);
+    } catch (err) {
+      console.error("List error:", err);
+      setListError(err instanceof Error ? err.message : "Failed to list ticket. Please try again.");
+    } finally {
+      setIsListing(false);
+    }
+  };
+
+  const handleCancelListing = async () => {
+    if (!currentListing || !address) return;
+
+    setIsCancellingListing(true);
+    setListError(null);
+
+    try {
+      console.log("Cancelling listing:", currentListing.listingId);
+      await cancelListingOnChain(currentListing.listingId);
+      console.log("Listing cancelled");
+
+      setCurrentListing(null);
+      setListSuccess("Listing cancelled successfully!");
+
+      setTimeout(() => {
+        setListSuccess(null);
+      }, 2000);
+    } catch (err) {
+      console.error("Cancel listing error:", err);
+      setListError(err instanceof Error ? err.message : "Failed to cancel listing. Please try again.");
+    } finally {
+      setIsCancellingListing(false);
     }
   };
 
@@ -425,19 +517,38 @@ function Dashboard() {
             </div>
 
             {/* Error Messages */}
-            {refundError && (
+            {(refundError || listError) && (
               <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-                {refundError}
+                {refundError || listError}
               </div>
             )}
 
             {/* Success Messages */}
-            {refundSuccess && (
+            {(refundSuccess || listSuccess) && (
               <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm flex items-center gap-2">
                 <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                {refundSuccess}
+                {refundSuccess || listSuccess}
+              </div>
+            )}
+
+            {/* Current Listing Info */}
+            {currentListing && currentListing.active && (
+              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-blue-800">Listed for Sale</p>
+                    <p className="text-lg font-bold text-blue-900">{ethers.formatEther(currentListing.price)} ETH</p>
+                  </div>
+                  <button
+                    onClick={handleCancelListing}
+                    disabled={isCancellingListing}
+                    className="btn-secondary text-sm py-1 px-3"
+                  >
+                    {isCancellingListing ? "Cancelling..." : "Cancel"}
+                  </button>
+                </div>
               </div>
             )}
 
@@ -460,8 +571,22 @@ function Dashboard() {
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
                 </svg>
-                Transfer Ticket
+                Transfer (Free)
               </button>
+
+              {/* List for Sale Button */}
+              {!currentListing?.active && (
+                <button
+                  onClick={() => setShowListModal(true)}
+                  disabled={!isConnected}
+                  className="w-full btn-primary flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  List for Sale
+                </button>
+              )}
 
               {(() => {
                 const eligibility = refundStatus(selectedTicket);
@@ -575,6 +700,96 @@ function Dashboard() {
                   </div>
                 ) : (
                   "Transfer"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* List for Sale Modal */}
+      {showListModal && selectedTicket && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
+          onClick={() => {
+            setShowListModal(false);
+            setListError(null);
+            setListPriceEth("");
+          }}
+        >
+          <div
+            className="bg-white rounded-2xl p-6 max-w-md w-full animate-slide-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-xl font-display font-bold text-slate-900 mb-2">
+              List Ticket for Sale
+            </h3>
+            <p className="text-slate-500 text-sm mb-4">
+              Sell <span className="font-mono font-medium">{getTicketUID(selectedTicket)}</span> on the marketplace
+            </p>
+
+            {listError && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                {listError}
+              </div>
+            )}
+
+            {listSuccess && (
+              <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm flex items-center gap-2">
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                {listSuccess}
+              </div>
+            )}
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                Asking Price (ETH)
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  value={listPriceEth}
+                  onChange={(e) => setListPriceEth(e.target.value)}
+                  placeholder="0.05"
+                  className="input pr-12"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 font-medium">
+                  ETH
+                </span>
+              </div>
+            </div>
+
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-blue-700 text-sm mb-4">
+              When someone buys your ticket, the ETH will be sent directly to your wallet.
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowListModal(false);
+                  setListError(null);
+                  setListPriceEth("");
+                }}
+                className="flex-1 btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleListForSale}
+                disabled={isListing || !listPriceEth}
+                className="flex-1 btn-primary"
+              >
+                {isListing ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Listing...
+                  </div>
+                ) : (
+                  "List for Sale"
                 )}
               </button>
             </div>
