@@ -23,24 +23,16 @@ function VerifierDashboard() {
   // Clean up camera on unmount
   useEffect(() => {
     return () => {
-      stopCamera();
-    };
-  }, []);
-
-  // Start/stop QR scanning loop based on isScanning state
-  useEffect(() => {
-    if (isScanning && videoRef.current && videoRef.current.readyState >= 2) {
-      console.log("Starting QR scan loop from effect...");
-      animationRef.current = requestAnimationFrame(scanQRCode);
-    }
-    return () => {
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
       }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+      }
     };
-  }, [isScanning, scanQRCode]);
+  }, []);
 
-  // QR Code scanning loop
+  // QR Code scanning loop (defined before useEffect that uses it)
   const scanQRCode = useCallback(() => {
     if (!videoRef.current || !canvasRef.current || !isScanning) {
       return;
@@ -85,6 +77,19 @@ function VerifierDashboard() {
     // Continue scanning
     animationRef.current = requestAnimationFrame(scanQRCode);
   }, [isScanning, lastScannedCode]);
+
+  // Start/stop QR scanning loop based on isScanning state
+  useEffect(() => {
+    if (isScanning && videoRef.current && videoRef.current.readyState >= 2) {
+      console.log("Starting QR scan loop from effect...");
+      animationRef.current = requestAnimationFrame(scanQRCode);
+    }
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [isScanning, scanQRCode]);
 
   // ---------------------------------------------------
   // CAMERA - Native video element approach with QR scanning
