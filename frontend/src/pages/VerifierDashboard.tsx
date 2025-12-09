@@ -438,6 +438,7 @@
 // export default VerifierDashboard;
 
 import { useState, useRef, useEffect } from "react";
+import { Html5Qrcode } from "html5-qrcode";
 import { tickets as ticketsApi, VerifyResult } from "../lib/api";
 
 function VerifierDashboard() {
@@ -450,11 +451,10 @@ function VerifierDashboard() {
 
   const [verifyMode, setVerifyMode] = useState<"qr" | "uid">("uid");
 
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
   const [cameraLoading, setCameraLoading] = useState(false);
 
-  // Clean up camera on unmount
+  // Clean up scanner on unmount
   useEffect(() => {
     return () => {
       stopCamera();
@@ -462,87 +462,66 @@ function VerifierDashboard() {
   }, []);
 
   // ---------------------------------------------------
-  // CAMERA SCANNING
+  // QR CODE SCANNING with html5-qrcode
   // ---------------------------------------------------
   const startCamera = async () => {
     setError(null);
     setCameraLoading(true);
     
     try {
-      // Request camera with specific constraints
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { 
-          facingMode: "environment",
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
+      // Create scanner instance
+      scannerRef.current = new Html5Qrcode("qr-reader");
+      
+      await scannerRef.current.start(
+        { facingMode: "environment" },
+        {
+          fps: 10,
+          qrbox: { width: 250, height: 250 },
         },
-        audio: false,
-      });
-
-      console.log("Camera stream obtained:", stream.getVideoTracks());
-      streamRef.current = stream;
-
-      if (videoRef.current) {
-        // Set the stream
-        videoRef.current.srcObject = stream;
-        
-        // Wait for video to be ready
-        await new Promise<void>((resolve, reject) => {
-          if (!videoRef.current) {
-            reject(new Error("Video element not available"));
-            return;
-          }
-          
-          videoRef.current.onloadedmetadata = () => {
-            console.log("Video metadata loaded");
-            resolve();
-          };
-          
-          videoRef.current.onerror = (e) => {
-            console.error("Video error:", e);
-            reject(new Error("Video playback error"));
-          };
-          
-          // Timeout after 5 seconds
-          setTimeout(() => reject(new Error("Camera timeout")), 5000);
-        });
-        
-        // Now play the video
-        await videoRef.current.play();
-        console.log("Video playing");
-      }
-
+        // Success callback - QR code detected!
+        async (decodedText) => {
+          console.log("QR Code detected:", decodedText);
+          // Stop scanning and verify
+          await stopCamera();
+          verifyQRPayload(decodedText);
+        },
+        // Error callback (called frequently when no QR found - ignore)
+        () => {}
+      );
+      
       setIsScanning(true);
       setResult(null);
     } catch (err) {
-      console.error("Camera error:", err);
+      console.error("Scanner error:", err);
       stopCamera();
       if (err instanceof Error) {
-        if (err.name === "NotAllowedError") {
+        if (err.message.includes("Permission")) {
           setError("Camera access denied. Please allow camera permissions.");
-        } else if (err.name === "NotFoundError") {
-          setError("No camera found on this device.");
         } else {
-          setError(`Camera error: ${err.message}`);
+          setError(`Scanner error: ${err.message}`);
         }
+      } else if (typeof err === "string") {
+        setError(err);
       } else {
-        setError("Unable to access camera.");
+        setError("Unable to start QR scanner.");
       }
     } finally {
       setCameraLoading(false);
     }
   };
 
-  const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => {
-        track.stop();
-        console.log("Stopped track:", track.label);
-      });
-      streamRef.current = null;
-    }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
+  const stopCamera = async () => {
+    if (scannerRef.current) {
+      try {
+        const state = scannerRef.current.getState();
+        if (state === 2) { // SCANNING state
+          await scannerRef.current.stop();
+        }
+        scannerRef.current.clear();
+      } catch (e) {
+        console.log("Scanner cleanup:", e);
+      }
+      scannerRef.current = null;
     }
     setIsScanning(false);
     setCameraLoading(false);
@@ -583,30 +562,44 @@ function VerifierDashboard() {
   };
 
   // ---------------------------------------------------
-  // QR SCAN PAYLOAD → TREAT AS UID STRING
+  // QR SCAN PAYLOAD → Parse and verify
   // ---------------------------------------------------
   const verifyQRPayload = async (payload: string) => {
-    stopCamera();
     setIsVerifying(true);
     setError(null);
     setResult(null);
 
     try {
-      let ticketUID = payload.trim();
-
-      // If encoded Base64 → decode
+      let ticketUID = "";
+      
+      // Try to decode as base64 JSON (the actual QR format)
       try {
-        const decoded = atob(payload);
-        if (decoded.startsWith("TKT-")) {
-          ticketUID = decoded;
+        const decoded = atob(payload.trim());
+        const parsed = JSON.parse(decoded);
+        
+        // QR contains: { eventId, ticketSerial, holderAddress, nonce, timestamp }
+        if (parsed.eventId !== undefined && parsed.ticketSerial !== undefined) {
+          // Convert to UID format
+          ticketUID = `TKT-${parsed.eventId}-${parsed.ticketSerial.toString().padStart(4, "0")}`;
+          console.log("Decoded QR payload:", parsed, "→ UID:", ticketUID);
         }
       } catch {
-        // not Base64, use raw string
+        // Not base64 JSON, try other formats
+      }
+      
+      // If not decoded, check if it's already a UID string
+      if (!ticketUID) {
+        const trimmed = payload.trim();
+        if (trimmed.startsWith("TKT-")) {
+          ticketUID = trimmed;
+        }
       }
 
-      if (!ticketUID.startsWith("TKT-")) {
-        throw new Error("QR code does not contain a valid Ticket UID.");
+      if (!ticketUID) {
+        throw new Error("Invalid QR code format. Expected ticket QR code.");
       }
+
+      console.log("Verifying ticket UID:", ticketUID);
 
       const { data, error } = await ticketsApi.verify({
         ticketUID,
@@ -737,22 +730,19 @@ function VerifierDashboard() {
       {!result && verifyMode === "qr" && (
         <>
           <div className="card overflow-hidden mb-4">
-            <div className="aspect-video bg-black relative">
-              {/* Video element - always rendered but hidden when not scanning */}
-              <video 
-                ref={videoRef} 
-                autoPlay 
-                playsInline 
-                muted 
-                className={`w-full h-full object-cover ${isScanning ? 'block' : 'hidden'}`}
-                style={{ transform: 'scaleX(-1)' }} // Mirror for front camera
+            <div className="bg-black relative" style={{ minHeight: "300px" }}>
+              {/* QR Reader container - html5-qrcode will render here */}
+              <div 
+                id="qr-reader" 
+                className={`w-full ${isScanning ? 'block' : 'hidden'}`}
+                style={{ minHeight: "300px" }}
               />
               
               {/* Loading state */}
               {cameraLoading && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-white bg-black">
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-white bg-black z-10">
                   <div className="w-10 h-10 border-4 border-white border-t-transparent rounded-full animate-spin mb-3" />
-                  <p>Starting camera...</p>
+                  <p>Starting scanner...</p>
                 </div>
               )}
               
@@ -760,34 +750,23 @@ function VerifierDashboard() {
               {!isScanning && !cameraLoading && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
                   <svg className="w-16 h-16 mb-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    <path d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h2M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
                   </svg>
                   <button className="btn-primary" onClick={startCamera}>
-                    Start Camera
+                    Start QR Scanner
                   </button>
-                </div>
-              )}
-              
-              {/* Scanning overlay with viewfinder */}
-              {isScanning && (
-                <div className="absolute inset-0 pointer-events-none">
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-48 h-48 border-2 border-white rounded-lg opacity-70" />
-                  </div>
-                  <div className="absolute bottom-4 left-0 right-0 text-center">
-                    <p className="text-white text-sm bg-black/50 inline-block px-3 py-1 rounded">
-                      Point camera at QR code
-                    </p>
-                  </div>
+                  <p className="text-slate-400 text-sm mt-2">
+                    Point camera at ticket QR code
+                  </p>
                 </div>
               )}
             </div>
             
             {/* Stop button */}
             {isScanning && (
-              <div className="p-3 bg-slate-100 flex justify-center">
+              <div className="p-3 bg-slate-100 flex justify-center gap-3">
                 <button onClick={stopCamera} className="btn-secondary text-sm">
-                  Stop Camera
+                  Stop Scanner
                 </button>
               </div>
             )}

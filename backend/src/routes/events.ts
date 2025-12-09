@@ -244,7 +244,8 @@ export async function eventsRoutes(fastify: FastifyInstance): Promise<void> {
       const purchases = ticketPurchases.map((t) => ({
         ticketId: t.id,
         ticketSerial: t.ticketSerial,
-        status: true,
+        ticketUID: `TKT-${event.onChainEventId}-${t.ticketSerial.toString().padStart(4, "0")}`,
+        status: t.status, // VALID, USED, REFUNDED, TRANSFERRED
         buyerAddress: t.ownerAddress,
         buyerEmail: t.owner?.email || null,
         buyerBuId: t.owner?.buId || null,
