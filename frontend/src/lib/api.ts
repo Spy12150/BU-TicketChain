@@ -31,7 +31,21 @@ async function request<T>(
     const data = await response.json();
 
     if (!response.ok) {
-      return { error: data.error || data.message || "Request failed" };
+      // Include validation details if present
+      let errorMsg = data.error || data.message || "Request failed";
+      if (data.details) {
+        console.error("Validation details:", data.details);
+        // Format Zod flatten errors
+        if (data.details.fieldErrors) {
+          const fieldErrors = Object.entries(data.details.fieldErrors)
+            .map(([field, errors]) => `${field}: ${(errors as string[]).join(", ")}`)
+            .join("; ");
+          errorMsg = fieldErrors || errorMsg;
+        } else if (typeof data.details === "object") {
+          errorMsg = JSON.stringify(data.details);
+        }
+      }
+      return { error: errorMsg };
     }
 
     return { data };

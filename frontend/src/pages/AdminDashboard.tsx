@@ -58,6 +58,42 @@ function AdminDashboard() {
     setIsCreating(true);
     setError(null);
 
+    // Validate form fields before submitting
+    if (!formData.name.trim()) {
+      setError("Event name is required");
+      setIsCreating(false);
+      return;
+    }
+    if (!formData.startTime) {
+      setError("Start time is required");
+      setIsCreating(false);
+      return;
+    }
+    if (!formData.endTime) {
+      setError("End time is required");
+      setIsCreating(false);
+      return;
+    }
+
+    const startDate = new Date(formData.startTime);
+    const endDate = new Date(formData.endTime);
+
+    if (isNaN(startDate.getTime())) {
+      setError("Invalid start time");
+      setIsCreating(false);
+      return;
+    }
+    if (isNaN(endDate.getTime())) {
+      setError("Invalid end time");
+      setIsCreating(false);
+      return;
+    }
+    if (endDate <= startDate) {
+      setError("End time must be after start time");
+      setIsCreating(false);
+      return;
+    }
+
     try {
       const eventData: CreateEventData = {
         name: formData.name,
@@ -65,15 +101,22 @@ function AdminDashboard() {
         price: ethers.parseEther(formData.priceEth).toString(),
         discountedPrice: ethers.parseEther(formData.discountedPriceEth).toString(),
         maxSupply: formData.maxSupply,
-        startTime: new Date(formData.startTime).toISOString(),
-        endTime: new Date(formData.endTime).toISOString(),
+        startTime: startDate.toISOString(),
+        endTime: endDate.toISOString(),
         venue: formData.venue || undefined,
       };
 
-      const { data, error } = await eventsApi.create(eventData);
+      console.log("Creating event with data:", eventData);
 
-      if (error) {
-        setError(error);
+      const response = await eventsApi.create(eventData);
+      console.log("Create event response:", response);
+
+      if (response.error) {
+        // Show detailed error if available
+        const errorMsg = typeof response.error === 'string' 
+          ? response.error 
+          : JSON.stringify(response.error);
+        setError(errorMsg);
       } else {
         setSuccess("Event created successfully!");
         setShowCreateForm(false);

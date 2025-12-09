@@ -119,9 +119,18 @@ export async function eventsRoutes(fastify: FastifyInstance): Promise<void> {
           );
           onChainEventId = result.eventId;
           txHash = result.txHash;
-        } catch (e) {
+        } catch (e: any) {
           console.error("Blockchain error:", e);
-          return reply.status(500).send({ error: "Blockchain error" });
+          // Provide more helpful error messages
+          let errorMsg = "Blockchain transaction failed";
+          if (e?.message?.includes("Ownable")) {
+            errorMsg = "Backend wallet is not the contract owner. Check BACKEND_PRIVATE_KEY matches the deployer account.";
+          } else if (e?.message?.includes("insufficient funds")) {
+            errorMsg = "Backend wallet has insufficient ETH for gas fees.";
+          } else if (e?.message) {
+            errorMsg = e.message;
+          }
+          return reply.status(500).send({ error: errorMsg });
         }
 
         const event = await prisma.event.create({
