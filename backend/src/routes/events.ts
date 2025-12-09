@@ -91,6 +91,10 @@ export async function eventsRoutes(fastify: FastifyInstance): Promise<void> {
     "/",
     { preHandler: [fastify.authenticate, authorize("ADMIN")] },
     async (req: any, reply: FastifyReply) => {
+      console.log("=== CREATE EVENT REQUEST ===");
+      console.log("Request body:", JSON.stringify(req.body, null, 2));
+      console.log("User:", req.user);
+      
       try {
         const parsed = createEventSchema.safeParse(req.body);
         if (!parsed.success) {
@@ -104,11 +108,15 @@ export async function eventsRoutes(fastify: FastifyInstance): Promise<void> {
 
         const startTimestamp = Math.floor(new Date(body.startTime).getTime() / 1000);
         const endTimestamp = Math.floor(new Date(body.endTime).getTime() / 1000);
+        
+        console.log("Validation passed. Creating on-chain event...");
+        console.log("Timestamps:", { startTimestamp, endTimestamp });
 
         let onChainEventId = 0;
         let txHash = "";
 
         try {
+          console.log("Calling createEventOnChain...");
           const result = await createEventOnChain(
             body.name,
             BigInt(body.price),
@@ -119,6 +127,7 @@ export async function eventsRoutes(fastify: FastifyInstance): Promise<void> {
           );
           onChainEventId = result.eventId;
           txHash = result.txHash;
+          console.log("On-chain event created:", { onChainEventId, txHash });
         } catch (e: any) {
           console.error("Blockchain error:", e);
           // Provide more helpful error messages
@@ -133,6 +142,7 @@ export async function eventsRoutes(fastify: FastifyInstance): Promise<void> {
           return reply.status(500).send({ error: errorMsg });
         }
 
+        console.log("Creating event in database...");
         const event = await prisma.event.create({
           data: {
             onChainEventId,
@@ -168,9 +178,13 @@ export async function eventsRoutes(fastify: FastifyInstance): Promise<void> {
           },
           txHash,
         });
-      } catch (e) {
+      } catch (e: any) {
         console.error("Event creation failed:", e);
-        return reply.status(500).send({ error: "Failed to create event" });
+        const errorMsg = e?.message || String(e) || "Unknown error";
+        return reply.status(500).send({ 
+          error: "Failed to create event", 
+          details: errorMsg 
+        });
       }
     }
   );
