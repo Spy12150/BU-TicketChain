@@ -246,24 +246,13 @@ export async function ticketsRoutes(fastify: FastifyInstance): Promise<void> {
 
         // Update ticket and record transaction
         const result = await prisma.$transaction(async (tx) => {
-          // Mark original ticket as TRANSFERRED (keep original owner info for history)
+          // Update ownership in-place (ticket remains VALID, just changes owner)
           const updatedTicket = await tx.ticket.update({
             where: { id: body.ticketId },
             data: {
-              status: "TRANSFERRED",
-              // Keep original ownerUserId and ownerAddress for audit trail
-            },
-          });
-
-          // Create new ticket for recipient (status: VALID)
-          const newTicket = await tx.ticket.create({
-            data: {
-              eventId: ticket.eventId,
               ownerUserId: recipientWallet?.userId || null,
               ownerAddress: body.toAddress.toLowerCase(),
-              ticketSerial: ticket.ticketSerial,
               status: "VALID",
-              purchasedAt: new Date(), // Track when recipient received it
             },
           });
 
@@ -274,7 +263,7 @@ export async function ticketsRoutes(fastify: FastifyInstance): Promise<void> {
               type: "TRANSFER",
               userId,
               eventId: ticket.eventId,
-              ticketId: newTicket.id,
+              ticketId: updatedTicket.id,
               fromAddress: ticket.ownerAddress,
               toAddress: body.toAddress.toLowerCase(),
               status: "CONFIRMED",
@@ -282,15 +271,15 @@ export async function ticketsRoutes(fastify: FastifyInstance): Promise<void> {
             },
           });
 
-          return { updatedTicket, newTicket, transaction };
+          return { updatedTicket, transaction };
         });
 
         return reply.send({
           message: "Ticket transfer recorded",
           ticket: {
-            id: result.newTicket.id,
+            id: result.updatedTicket.id,
             newOwner: body.toAddress,
-            status: result.newTicket.status,
+            status: result.updatedTicket.status,
           },
           txHash: body.txHash,
         });
