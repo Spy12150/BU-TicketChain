@@ -656,7 +656,7 @@ function EventDetail() {
                             )}
                           </div>
                           <p className="text-xs text-slate-500">
-                            TKT-{listing.eventId}-0003 • Seller: {listing.seller.slice(0, 6)}...{listing.seller.slice(-4)}
+                            TKT-{listing.eventId}-0006 • Seller: {listing.seller.slice(0, 6)}...{listing.seller.slice(-4)}
                           </p>
                         </div>
                         
