@@ -72,7 +72,7 @@ model Wallet {
 // Events table - mirrors on-chain event data
 model Event {
   id              String    @id @default(cuid())
-  onChainEventId  Int       @unique @map("on_chain_event_id")
+  onChainEventId  Int       @map("on_chain_event_id")
   name            String
   description     String?
   price           String    // Stored as string to handle BigInt from chain

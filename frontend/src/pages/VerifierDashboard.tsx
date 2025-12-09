@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import jsQR from "jsqr";
 import { tickets as ticketsApi, VerifyResult } from "../lib/api";
 
 function VerifierDashboard() {
@@ -13,8 +14,11 @@ function VerifierDashboard() {
   const [verifyMode, setVerifyMode] = useState<"qr" | "uid">("uid");
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const animationRef = useRef<number | null>(null);
   const [cameraLoading, setCameraLoading] = useState(false);
+  const [lastScannedCode, setLastScannedCode] = useState<string | null>(null);
 
   // Clean up camera on unmount
   useEffect(() => {
@@ -23,12 +27,72 @@ function VerifierDashboard() {
     };
   }, []);
 
+  // Start/stop QR scanning loop based on isScanning state
+  useEffect(() => {
+    if (isScanning && videoRef.current && videoRef.current.readyState >= 2) {
+      console.log("Starting QR scan loop from effect...");
+      animationRef.current = requestAnimationFrame(scanQRCode);
+    }
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [isScanning, scanQRCode]);
+
+  // QR Code scanning loop
+  const scanQRCode = useCallback(() => {
+    if (!videoRef.current || !canvasRef.current || !isScanning) {
+      return;
+    }
+
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+
+    if (!ctx || video.readyState !== video.HAVE_ENOUGH_DATA) {
+      // Video not ready yet, try again
+      animationRef.current = requestAnimationFrame(scanQRCode);
+      return;
+    }
+
+    // Set canvas size to match video
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    // Draw video frame to canvas
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // Get image data and scan for QR code
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const code = jsQR(imageData.data, imageData.width, imageData.height, {
+      inversionAttempts: "dontInvert",
+    });
+
+    if (code && code.data) {
+      // QR code found!
+      console.log("QR Code detected:", code.data);
+      
+      // Avoid scanning the same code repeatedly
+      if (code.data !== lastScannedCode) {
+        setLastScannedCode(code.data);
+        stopCamera();
+        verifyQRPayload(code.data);
+        return;
+      }
+    }
+
+    // Continue scanning
+    animationRef.current = requestAnimationFrame(scanQRCode);
+  }, [isScanning, lastScannedCode]);
+
   // ---------------------------------------------------
-  // CAMERA - Native video element approach
+  // CAMERA - Native video element approach with QR scanning
   // ---------------------------------------------------
   const startCamera = async () => {
     setError(null);
     setCameraLoading(true);
+    setLastScannedCode(null);
     
     try {
       console.log("Requesting camera access...");
@@ -47,10 +111,14 @@ function VerifierDashboard() {
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         
-        // Wait for video to load
+        // Wait for video to load, then start scanning
         videoRef.current.onloadedmetadata = () => {
           console.log("Video metadata loaded, playing...");
-          videoRef.current?.play().catch(console.error);
+          videoRef.current?.play().then(() => {
+            console.log("Video playing, starting QR scan loop...");
+            // Start the QR scanning loop
+            animationRef.current = requestAnimationFrame(scanQRCode);
+          }).catch(console.error);
         };
       }
 
@@ -77,6 +145,12 @@ function VerifierDashboard() {
   };
 
   const stopCamera = () => {
+    // Stop the scanning animation loop
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+      animationRef.current = null;
+    }
+    
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => {
         track.stop();
@@ -306,14 +380,19 @@ function VerifierDashboard() {
                 style={{ minHeight: "300px" }}
               />
               
-              {/* Scanning overlay */}
+              {/* Hidden canvas for QR scanning */}
+              <canvas ref={canvasRef} className="hidden" />
+              
+              {/* Scanning overlay with animated border */}
               {isScanning && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="w-56 h-56 border-2 border-primary-400 rounded-lg relative">
-                    <div className="absolute -top-1 -left-1 w-6 h-6 border-l-4 border-t-4 border-primary-500 rounded-tl" />
-                    <div className="absolute -top-1 -right-1 w-6 h-6 border-r-4 border-t-4 border-primary-500 rounded-tr" />
-                    <div className="absolute -bottom-1 -left-1 w-6 h-6 border-l-4 border-b-4 border-primary-500 rounded-bl" />
-                    <div className="absolute -bottom-1 -right-1 w-6 h-6 border-r-4 border-b-4 border-primary-500 rounded-br" />
+                  <div className="w-56 h-56 border-2 border-primary-400 rounded-lg relative animate-pulse">
+                    <div className="absolute -top-1 -left-1 w-8 h-8 border-l-4 border-t-4 border-primary-500 rounded-tl" />
+                    <div className="absolute -top-1 -right-1 w-8 h-8 border-r-4 border-t-4 border-primary-500 rounded-tr" />
+                    <div className="absolute -bottom-1 -left-1 w-8 h-8 border-l-4 border-b-4 border-primary-500 rounded-bl" />
+                    <div className="absolute -bottom-1 -right-1 w-8 h-8 border-r-4 border-b-4 border-primary-500 rounded-br" />
+                    {/* Scanning line animation */}
+                    <div className="absolute top-0 left-0 right-0 h-0.5 bg-primary-500 animate-scan" />
                   </div>
                 </div>
               )}
@@ -333,10 +412,10 @@ function VerifierDashboard() {
                     <path d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h2M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
                   </svg>
                   <button className="btn-primary" onClick={startCamera}>
-                    Start Camera
+                    Start Scanner
                   </button>
                   <p className="text-slate-400 text-sm mt-2">
-                    View QR code through camera
+                    Point camera at QR code to scan automatically
                   </p>
                 </div>
               )}
@@ -346,7 +425,7 @@ function VerifierDashboard() {
                 <div className="absolute bottom-4 left-0 right-0 flex justify-center pointer-events-none">
                   <div className="bg-black/70 text-white px-4 py-2 rounded-full text-sm flex items-center gap-2">
                     <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                    Camera active - enter QR data below
+                    Scanning for QR codes...
                   </div>
                 </div>
               )}

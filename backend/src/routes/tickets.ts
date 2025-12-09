@@ -555,9 +555,10 @@ fastify.post(
       // Validate (still uses your Zod schema)
       body = verifyTicketSchema.parse(body);
 
-      // 1. Lookup event from on-chain ID
-      const event = await prisma.event.findUnique({
+      // 1. Lookup event from on-chain ID (use findFirst since onChainEventId is not unique)
+      const event = await prisma.event.findFirst({
         where: { onChainEventId: body.eventId },
+        orderBy: { createdAt: "desc" }, // Get the most recent event with this ID
       });
 
       if (!event) {

@@ -31,9 +31,10 @@ export async function startEventListener(): Promise<void> {
       console.log(`🎫 EventCreated: ${name} (ID: ${eventId})`);
 
       try {
-        // Check if event already exists
-        const existing = await prisma.event.findUnique({
+        // Check if event already exists (most recent with this onChainEventId)
+        const existing = await prisma.event.findFirst({
           where: { onChainEventId: Number(eventId) },
+          orderBy: { createdAt: "desc" },
         });
 
         if (!existing) {
@@ -60,8 +61,9 @@ export async function startEventListener(): Promise<void> {
       console.log(`🎟️  TicketPurchased: Event ${eventId}, Serial ${ticketSerial}`);
 
       try {
-        const dbEvent = await prisma.event.findUnique({
+        const dbEvent = await prisma.event.findFirst({
           where: { onChainEventId: Number(eventId) },
+          orderBy: { createdAt: "desc" },
         });
 
         if (dbEvent) {
@@ -110,8 +112,9 @@ export async function startEventListener(): Promise<void> {
       console.log(`🔄 TicketTransferred: Event ${eventId}, ${from} -> ${to}`);
 
       try {
-        const dbEvent = await prisma.event.findUnique({
+        const dbEvent = await prisma.event.findFirst({
           where: { onChainEventId: Number(eventId) },
+          orderBy: { createdAt: "desc" },
         });
 
         if (dbEvent) {
@@ -152,8 +155,9 @@ export async function startEventListener(): Promise<void> {
       console.log(`💸 TicketRefunded: Event ${eventId}, Holder ${holder}`);
 
       try {
-        const dbEvent = await prisma.event.findUnique({
+        const dbEvent = await prisma.event.findFirst({
           where: { onChainEventId: Number(eventId) },
+          orderBy: { createdAt: "desc" },
         });
 
         if (dbEvent) {
@@ -192,8 +196,9 @@ export async function startEventListener(): Promise<void> {
       console.log(`✓ TicketMarkedUsed: Event ${eventId}, Serial ${ticketSerial}`);
 
       try {
-        const dbEvent = await prisma.event.findUnique({
+        const dbEvent = await prisma.event.findFirst({
           where: { onChainEventId: Number(eventId) },
+          orderBy: { createdAt: "desc" },
         });
 
         if (dbEvent) {
@@ -263,8 +268,9 @@ export async function syncHistoricalEvents(fromBlock: number = 0): Promise<void>
       if ("args" in log) {
         const [eventId, name, price, discountedPrice, maxSupply, startTime, endTime] = log.args;
 
-        const existing = await prisma.event.findUnique({
+        const existing = await prisma.event.findFirst({
           where: { onChainEventId: Number(eventId) },
+          orderBy: { createdAt: "desc" },
         });
 
         if (!existing) {

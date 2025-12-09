@@ -144,22 +144,8 @@ export async function eventsRoutes(fastify: FastifyInstance): Promise<void> {
 
         console.log("Creating event in database...");
         
-        // Use upsert to handle case where Hardhat was restarted but DB still has old events
-        const event = await prisma.event.upsert({
-          where: { onChainEventId },
-          update: {
-            name: body.name,
-            description: body.description,
-            price: body.price,
-            discountedPrice: body.discountedPrice,
-            maxSupply: body.maxSupply,
-            totalSold: 0, // Reset sold count since blockchain was reset
-            startTime: new Date(body.startTime),
-            endTime: new Date(body.endTime),
-            venue: body.venue,
-            imageUrl: body.imageUrl,
-          },
-          create: {
+        const event = await prisma.event.create({
+          data: {
             onChainEventId,
             name: body.name,
             description: body.description,
