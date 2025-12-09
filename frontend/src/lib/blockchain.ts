@@ -523,11 +523,16 @@ export async function getEventListings(
 ): Promise<MarketplaceListing[]> {
   const contract = await getContract();
   if (!contract) {
+    console.log("getEventListings: No contract available");
     return [];
   }
 
   try {
-    const [listingIds, listingDetails] = await contract.getEventListings(onChainEventId);
+    console.log("Calling getEventListings for eventId:", onChainEventId);
+    const result = await contract.getEventListings(onChainEventId);
+    console.log("getEventListings raw result:", result);
+    
+    const [listingIds, listingDetails] = result;
     
     const listings: MarketplaceListing[] = [];
     for (let i = 0; i < listingIds.length; i++) {
@@ -540,9 +545,19 @@ export async function getEventListings(
       });
     }
     
+    console.log("Parsed listings:", listings);
     return listings;
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Failed to get event listings:", error);
+    
+    // Check if it's a "function not found" error (contract not redeployed)
+    if (error && typeof error === "object" && "message" in error) {
+      const msg = (error as { message: string }).message;
+      if (msg.includes("no matching function") || msg.includes("CALL_EXCEPTION")) {
+        console.error("Contract may not have getEventListings function - did you redeploy?");
+      }
+    }
+    
     return [];
   }
 }

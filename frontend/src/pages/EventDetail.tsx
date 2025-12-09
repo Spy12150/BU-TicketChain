@@ -46,25 +46,25 @@ function EventDetail() {
     }
   }, [id]);
 
-  // Load marketplace listings when event is loaded
+  // Load marketplace listings when event is loaded or address changes
   useEffect(() => {
-    if (event?.onChainEventId) {
+    if (event?.onChainEventId !== undefined) {
       loadListings();
     }
-  }, [event?.onChainEventId]);
+  }, [event?.onChainEventId, address]);
 
   const loadListings = async () => {
     if (!event) return;
     setLoadingListings(true);
+    console.log("Loading listings for event:", event.onChainEventId);
     try {
       const eventListings = await getEventListings(event.onChainEventId);
-      // Filter out user's own listings
-      const filteredListings = address 
-        ? eventListings.filter(l => l.seller.toLowerCase() !== address.toLowerCase())
-        : eventListings;
-      setListings(filteredListings);
+      console.log("Raw listings from contract:", eventListings);
+      // Show all listings - we'll mark user's own listings in the UI
+      setListings(eventListings);
     } catch (err) {
       console.error("Failed to load listings:", err);
+      setMarketplaceError("Failed to load resale listings. Make sure contract is deployed.");
     } finally {
       setLoadingListings(false);
     }
@@ -610,52 +610,69 @@ function EventDetail() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {listings.map((listing) => (
-                    <div
-                      key={listing.listingId}
-                      className="flex items-center justify-between p-4 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors"
-                    >
-                      <div>
-                        <p className="font-medium text-slate-900">
-                          {ethers.formatEther(listing.price)} ETH
-                        </p>
-                        <p className="text-xs text-slate-500">
-                          Seller: {listing.seller.slice(0, 6)}...{listing.seller.slice(-4)}
-                        </p>
+                  {listings.map((listing) => {
+                    const isOwnListing = address && listing.seller.toLowerCase() === address.toLowerCase();
+                    
+                    return (
+                      <div
+                        key={listing.listingId}
+                        className={`flex items-center justify-between p-4 rounded-xl transition-colors ${
+                          isOwnListing ? "bg-blue-50 border border-blue-200" : "bg-slate-50 hover:bg-slate-100"
+                        }`}
+                      >
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium text-slate-900">
+                              {ethers.formatEther(listing.price)} ETH
+                            </p>
+                            {isOwnListing && (
+                              <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full">
+                                Your Listing
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-500">
+                            Seller: {listing.seller.slice(0, 6)}...{listing.seller.slice(-4)}
+                          </p>
+                        </div>
+                        
+                        {isOwnListing ? (
+                          <span className="text-sm text-slate-400 px-4">
+                            Listed
+                          </span>
+                        ) : !isAuthenticated ? (
+                          <button
+                            onClick={() => navigate("/login")}
+                            className="btn-secondary text-sm py-2 px-4"
+                          >
+                            Sign In
+                          </button>
+                        ) : !isConnected ? (
+                          <button
+                            onClick={connect}
+                            className="btn-accent text-sm py-2 px-4"
+                          >
+                            Connect
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleBuyFromMarketplace(listing)}
+                            disabled={buyingListingId === listing.listingId}
+                            className="btn-primary text-sm py-2 px-4"
+                          >
+                            {buyingListingId === listing.listingId ? (
+                              <div className="flex items-center gap-2">
+                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                Buying...
+                              </div>
+                            ) : (
+                              "Buy Now"
+                            )}
+                          </button>
+                        )}
                       </div>
-                      
-                      {!isAuthenticated ? (
-                        <button
-                          onClick={() => navigate("/login")}
-                          className="btn-secondary text-sm py-2 px-4"
-                        >
-                          Sign In
-                        </button>
-                      ) : !isConnected ? (
-                        <button
-                          onClick={connect}
-                          className="btn-accent text-sm py-2 px-4"
-                        >
-                          Connect
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleBuyFromMarketplace(listing)}
-                          disabled={buyingListingId === listing.listingId}
-                          className="btn-primary text-sm py-2 px-4"
-                        >
-                          {buyingListingId === listing.listingId ? (
-                            <div className="flex items-center gap-2">
-                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                              Buying...
-                            </div>
-                          ) : (
-                            "Buy Now"
-                          )}
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 
