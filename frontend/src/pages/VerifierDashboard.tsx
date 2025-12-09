@@ -452,6 +452,7 @@ function VerifierDashboard() {
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const [cameraLoading, setCameraLoading] = useState(false);
 
   // Clean up camera on unmount
   useEffect(() => {
@@ -465,33 +466,86 @@ function VerifierDashboard() {
   // ---------------------------------------------------
   const startCamera = async () => {
     setError(null);
+    setCameraLoading(true);
+    
     try {
+      // Request camera with specific constraints
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
+        video: { 
+          facingMode: "environment",
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false,
       });
 
+      console.log("Camera stream obtained:", stream.getVideoTracks());
       streamRef.current = stream;
 
       if (videoRef.current) {
+        // Set the stream
         videoRef.current.srcObject = stream;
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current?.play().catch(console.error);
-        };
+        
+        // Wait for video to be ready
+        await new Promise<void>((resolve, reject) => {
+          if (!videoRef.current) {
+            reject(new Error("Video element not available"));
+            return;
+          }
+          
+          videoRef.current.onloadedmetadata = () => {
+            console.log("Video metadata loaded");
+            resolve();
+          };
+          
+          videoRef.current.onerror = (e) => {
+            console.error("Video error:", e);
+            reject(new Error("Video playback error"));
+          };
+          
+          // Timeout after 5 seconds
+          setTimeout(() => reject(new Error("Camera timeout")), 5000);
+        });
+        
+        // Now play the video
+        await videoRef.current.play();
+        console.log("Video playing");
       }
 
       setIsScanning(true);
       setResult(null);
     } catch (err) {
       console.error("Camera error:", err);
-      setError("Unable to access camera.");
+      stopCamera();
+      if (err instanceof Error) {
+        if (err.name === "NotAllowedError") {
+          setError("Camera access denied. Please allow camera permissions.");
+        } else if (err.name === "NotFoundError") {
+          setError("No camera found on this device.");
+        } else {
+          setError(`Camera error: ${err.message}`);
+        }
+      } else {
+        setError("Unable to access camera.");
+      }
+    } finally {
+      setCameraLoading(false);
     }
   };
 
   const stopCamera = () => {
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-    if (videoRef.current) videoRef.current.srcObject = null;
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => {
+        track.stop();
+        console.log("Stopped track:", track.label);
+      });
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
     setIsScanning(false);
+    setCameraLoading(false);
   };
 
   // ---------------------------------------------------
@@ -684,16 +738,59 @@ function VerifierDashboard() {
         <>
           <div className="card overflow-hidden mb-4">
             <div className="aspect-video bg-black relative">
-              {isScanning ? (
-                <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
-              ) : (
-                <div className="absolute inset-0 flex items-center justify-center text-white">
+              {/* Video element - always rendered but hidden when not scanning */}
+              <video 
+                ref={videoRef} 
+                autoPlay 
+                playsInline 
+                muted 
+                className={`w-full h-full object-cover ${isScanning ? 'block' : 'hidden'}`}
+                style={{ transform: 'scaleX(-1)' }} // Mirror for front camera
+              />
+              
+              {/* Loading state */}
+              {cameraLoading && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-white bg-black">
+                  <div className="w-10 h-10 border-4 border-white border-t-transparent rounded-full animate-spin mb-3" />
+                  <p>Starting camera...</p>
+                </div>
+              )}
+              
+              {/* Start button - shown when not scanning and not loading */}
+              {!isScanning && !cameraLoading && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
+                  <svg className="w-16 h-16 mb-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
                   <button className="btn-primary" onClick={startCamera}>
                     Start Camera
                   </button>
                 </div>
               )}
+              
+              {/* Scanning overlay with viewfinder */}
+              {isScanning && (
+                <div className="absolute inset-0 pointer-events-none">
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-48 h-48 border-2 border-white rounded-lg opacity-70" />
+                  </div>
+                  <div className="absolute bottom-4 left-0 right-0 text-center">
+                    <p className="text-white text-sm bg-black/50 inline-block px-3 py-1 rounded">
+                      Point camera at QR code
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
+            
+            {/* Stop button */}
+            {isScanning && (
+              <div className="p-3 bg-slate-100 flex justify-center">
+                <button onClick={stopCamera} className="btn-secondary text-sm">
+                  Stop Camera
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="card p-4">
