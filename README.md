@@ -231,12 +231,10 @@ The smart contract tests cover:
 
 This project is licensed under the MIT License.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - Boston University for the project inspiration
 - OpenZeppelin for secure contract libraries
 - The Ethereum community for tooling and documentation
 
----
 
-Built with ❤️ at Boston University
