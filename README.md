@@ -26,8 +26,7 @@ bu-ticketchain/
 │   ├── src/
 │   │   ├── routes/     # API endpoints
 │   │   ├── services/   # Business logic & blockchain listener
-│   │   ├── lib/        # Utilities (Prisma, blockchain, auth)
-│   │   └── raft/       # Raft consensus placeholder
+│   │   └── lib/        # Utilities (Prisma, blockchain, auth)
 │   └── prisma/         # Database schema
 ├── frontend/           # React SPA (Vite)
 │   └── src/
@@ -38,22 +37,18 @@ bu-ticketchain/
 └── docker-compose.yml  # PostgreSQL setup
 ```
 
-## 🚀 Quick Start
+## Start instructions
 
 ### Prerequisites
 
-- Node.js >= 18.0.0
-- pnpm >= 9.0.0
-- Docker (for PostgreSQL)
-- MetaMask browser extension
+- Node.js, pnpm, docker, and metamask extension
 
 ### 1. Install Dependencies
 
 ```bash
-# Install pnpm if you don't have it
+
 npm install -g pnpm
 
-# Install all dependencies
 pnpm install
 ```
 
@@ -106,7 +101,7 @@ The app will be available at:
 - Frontend: http://localhost:5173
 - Backend API: http://localhost:3001
 
-## 🔧 Tech Stack
+## Tech Stack
 
 ### Smart Contracts
 - **Solidity 0.8.24** - Smart contract language
@@ -182,7 +177,7 @@ The smart contract tests cover:
 - ✅ Ticket verification and marking as used
 - ✅ Admin withdrawal functionality
 
-## 🔐 Security Considerations
+## Security Considerations
 
 1. **Smart Contract**
    - Uses OpenZeppelin's battle-tested contracts
@@ -198,43 +193,10 @@ The smart contract tests cover:
    - No sensitive data stored in local storage (except JWT)
    - MetaMask handles private key management
 
-## 🗺️ Roadmap
 
-### Completed (MVP)
-- [x] ERC-1155 ticket contract
-- [x] Event creation and management
-- [x] Ticket purchasing with discounts
-- [x] Ticket transfers and refunds
-- [x] QR code generation
-- [x] Ticket verification system
-- [x] Role-based access control
 
-### Future Enhancements
-- [ ] Raft-based consistency layer for multi-node backend
-- [ ] Real-time event updates via WebSockets
-- [ ] Email notifications
-- [ ] Secondary market with royalties
-- [ ] Multi-currency support
-- [ ] Mobile app
-- [ ] Analytics dashboard
-- [ ] Integration with BU SSO
 
-## 🤝 Contributing
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
 
-## 📄 License
-
-This project is licensed under the MIT License.
-
-## Acknowledgments
-
-- Boston University for the project inspiration
-- OpenZeppelin for secure contract libraries
-- The Ethereum community for tooling and documentation
 
 

@@ -8,7 +8,6 @@ import { authRoutes } from "./routes/auth.js";
 import { eventsRoutes } from "./routes/events.js";
 import { ticketsRoutes } from "./routes/tickets.js";
 import { startEventListener } from "./services/eventListener.js";
-import { getRaftNode } from "./raft/index.js";
 
 // Extend Fastify type to include our custom decorators
 declare module "fastify" {
@@ -65,11 +64,9 @@ async function main() {
 
   // Health check endpoint
   fastify.get("/health", async () => {
-    const raftStatus = getRaftNode().getStatus();
     return {
       status: "ok",
       timestamp: new Date().toISOString(),
-      raft: raftStatus,
     };
   });
 
@@ -93,14 +90,6 @@ async function main() {
   } catch (error) {
     console.warn("⚠️  Blockchain initialization failed:", error);
     console.warn("   Continuing without blockchain features...");
-  }
-
-  // Initialize Raft node (placeholder)
-  try {
-    const raftNode = getRaftNode();
-    await raftNode.start();
-  } catch (error) {
-    console.warn("⚠️  Raft initialization failed:", error);
   }
 
   // Start blockchain event listener
