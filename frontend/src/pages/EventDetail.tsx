@@ -66,7 +66,7 @@ function EventDetail() {
         listingId: 999,
         seller: "0xa39c77ab0daba543d9d344ae9fe4473fdd53bdb1",
         eventId: event.onChainEventId,
-        price: BigInt("30000000000000000"), // 0.03 ETH
+        price: BigInt("1000000000000000"), // 0.03 ETH
         active: true,
       };
       
@@ -630,7 +630,9 @@ function EventDetail() {
               ) : (
                 <div className="space-y-3">
                   {listings.map((listing) => {
-                    const isOwnListing = address && listing.seller.toLowerCase() === address.toLowerCase();
+                    // Mock listing (999) always shows as third-party, never as "own listing"
+                    const isMockListing = listing.listingId === 999;
+                    const isOwnListing = !isMockListing && address && listing.seller.toLowerCase() === address.toLowerCase();
                     
                     return (
                       <div
