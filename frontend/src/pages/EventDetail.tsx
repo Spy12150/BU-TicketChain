@@ -56,34 +56,12 @@ function EventDetail() {
   const loadListings = async () => {
     if (!event) return;
     setLoadingListings(true);
-    console.log("Loading listings for event:", event.onChainEventId);
     try {
       const eventListings = await getEventListings(event.onChainEventId);
-      console.log("Raw listings from contract:", eventListings);
-      
-      // Add mock listing for demo purposes (TKT-0-0000)
-      const mockListing: MarketplaceListing = {
-        listingId: 999,
-        seller: "0xa39c77ab0daba543d9d344ae9fe4473fdd53bdb1",
-        eventId: event.onChainEventId,
-        price: BigInt("1000000000000000"), // 0.03 ETH
-        active: true,
-      };
-      
-      // Combine real listings with mock
-      const allListings = [...eventListings, mockListing];
-      setListings(allListings)
+      setListings(eventListings);
     } catch (err) {
       console.error("Failed to load listings:", err);
-      // Still show mock listing even if contract call fails
-      const mockListing: MarketplaceListing = {
-        listingId: 999,
-        seller: "0xa39c77ab0daba543d9d344ae9fe4473fdd53bdb1",
-        eventId: event.onChainEventId,
-        price: BigInt("30000000000000000"), // 0.03 ETH
-        active: true,
-      };
-      setListings([mockListing]);
+      setListings([]);
     } finally {
       setLoadingListings(false);
     }
@@ -630,9 +608,7 @@ function EventDetail() {
               ) : (
                 <div className="space-y-3">
                   {listings.map((listing) => {
-                    // Mock listing (999) always shows as third-party, never as "own listing"
-                    const isMockListing = listing.listingId === 999;
-                    const isOwnListing = !isMockListing && address && listing.seller.toLowerCase() === address.toLowerCase();
+                    const isOwnListing = address && listing.seller.toLowerCase() === address.toLowerCase();
                     
                     return (
                       <div
@@ -651,14 +627,9 @@ function EventDetail() {
                                 Your Listing
                               </span>
                             )}
-                            {listing.listingId === 999 && (
-                              <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded-full">
-                                Demo
-                              </span>
-                            )}
                           </div>
                           <p className="text-xs text-slate-500">
-                            {listing.listingId === 999 ? "TKT-0-0000" : `TKT-${listing.eventId}-${String(listing.listingId).padStart(4, '0')}`} • Seller: {listing.seller.slice(0, 6)}...{listing.seller.slice(-4)}
+                            TKT-{listing.eventId}-{String(listing.listingId).padStart(4, '0')} • Seller: {listing.seller.slice(0, 6)}...{listing.seller.slice(-4)}
                           </p>
                         </div>
                         
