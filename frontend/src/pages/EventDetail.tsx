@@ -61,12 +61,12 @@ function EventDetail() {
       const eventListings = await getEventListings(event.onChainEventId);
       console.log("Raw listings from contract:", eventListings);
       
-      // Add mock listing for demo purposes (TKT-0-0003)
+      // Add mock listing for demo purposes (TKT-0-0000)
       const mockListing: MarketplaceListing = {
         listingId: 999,
-        seller: "0x1234567890abcdef1234567890abcdef12345678",
+        seller: "0xa39c77ab0daba543d9d344ae9fe4473fdd53bdb1",
         eventId: event.onChainEventId,
-        price: BigInt("1000000000000000"), // 0.03 ETH
+        price: BigInt("30000000000000000"), // 0.03 ETH
         active: true,
       };
       
@@ -78,7 +78,7 @@ function EventDetail() {
       // Still show mock listing even if contract call fails
       const mockListing: MarketplaceListing = {
         listingId: 999,
-        seller: "0x1234567890abcdef1234567890abcdef12345678",
+        seller: "0xa39c77ab0daba543d9d344ae9fe4473fdd53bdb1",
         eventId: event.onChainEventId,
         price: BigInt("30000000000000000"), // 0.03 ETH
         active: true,
@@ -656,7 +656,7 @@ function EventDetail() {
                             )}
                           </div>
                           <p className="text-xs text-slate-500">
-                            TKT-{listing.eventId}-0006 • Seller: {listing.seller.slice(0, 6)}...{listing.seller.slice(-4)}
+                            {listing.listingId === 999 ? "TKT-0-0000" : `TKT-${listing.eventId}-${String(listing.listingId).padStart(4, '0')}`} • Seller: {listing.seller.slice(0, 6)}...{listing.seller.slice(-4)}
                           </p>
                         </div>
                         
