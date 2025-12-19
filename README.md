@@ -4,7 +4,7 @@ A blockchain-backed ticketing system for Boston University events. Each ticket i
 
 ![BU TicketChain](https://img.shields.io/badge/Built%20with-Solidity%20%7C%20React%20%7C%20Node.js-blue)
 
-## 🎫 Features
+## Features
 
 - **Blockchain-Verified Tickets**: Each ticket is an ERC-1155 NFT with verifiable on-chain ownership
 - **Atomic Transactions**: Payment and ticket minting happen in a single transaction
@@ -14,7 +14,7 @@ A blockchain-backed ticketing system for Boston University events. Each ticket i
 - **Refund Support**: Tickets can be refunded before event start time
 - **Transfer Support**: Ticket holders can transfer tickets to other users
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 bu-ticketchain/
@@ -153,7 +153,7 @@ The app will be available at:
 | POST | `/tickets/verify` | Verify ticket (verifier) |
 | POST | `/tickets/mark-used` | Mark ticket as used (verifier) |
 
-## 🧪 Testing
+## Testing
 
 ### Smart Contract Tests
 
